@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, waMessage as coreWaMessage,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, waMessage as coreWaMessage, waReminder,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -73,17 +73,19 @@ async function refreshBridge() {
 function waSheet(cid, tid = '') {
   const c = ledger.customer(cid);
   if (!c || !c.phone) { toast('لا يوجد رقم جوال لهذا العميل'); return; }
-  const msg = waMessage(cid);
   const s = ledger.state;
   const w = waCfg();
+  const rem = tid ? null : waReminder(s, cid); // بدون عملية = «تذكير بالرصيد»
+  const msg = rem ? rem.text : waMessage(cid);
   const t = (tid && s.txns.get(tid)) || [...c.txnIds].reverse().map((id) => s.txns.get(id)).find((x) => x && !x.voided && x.kind !== 'opening') || null;
   const KL = { purchase: ['مشترياتك بالآجل', 'var(--buy)'], payment: ['تسديدك', 'var(--pay)'], return: ['مرتجعك', 'var(--ret)'] };
-  const kl = t && w.last ? KL[t.kind] : null;
-  const [d, tm] = waStamp(t ? t.ts : Date.now()).split(/\u00A0+-\u00A0+/);
-  const bal = w.bal ? (c.balance > 0 ? `رصيدك الحالي : ${fmt(c.balance)} ريال` : c.balance < 0 ? `لك عندنا : ${fmt(-c.balance)} ريال` : 'حسابك مسدّد') : '';
+  const kl = !rem && t && w.last ? KL[t.kind] : null;
+  const [d, tm] = (rem ? rem.stamp : waStamp(t ? t.ts : Date.now())).split(/\u00A0+-\u00A0+/);
+  const bal = !rem && w.bal ? (c.balance > 0 ? `رصيدك الحالي : ${fmt(c.balance)} ريال` : c.balance < 0 ? `لك عندنا : ${fmt(-c.balance)} ريال` : 'حسابك مسدّد') : '';
+  const remHtml = rem ? `<div class="kind">${rem.state === 'debt' ? 'رصيدكم للمشتريات الأجلة' : rem.state === 'credit' ? 'لكم عندنا' : 'حسابكم مسدّد'}</div>${rem.state === 'zero' ? '' : `<div class="amt" style="color:${rem.state === 'debt' ? 'var(--pay)' : 'var(--buy)'}">${fmt(rem.amount)}<small>ريال</small></div>`}${rem.lines.slice(rem.state === 'zero' ? 1 : 1).map((l) => `<div class="tag">${esc(l)}</div>`).join('')}` : '';
   const el = sheet(`<div class="grab"></div>
     <div class="nwhead"><span class="av">${esc([...c.name][0] || '؟')}</span><div class="who"><b>${esc(c.name)}</b><small dir="ltr">${esc(c.phone)}</small></div><span class="chip">${ic('chat')}واتساب</span></div>
-    <div class="receipt" id="waRc">${w.shop ? `<div class="shop">${esc(w.shop)}</div>` : ''}${kl ? `<div class="kind">${kl[0]}</div><div class="amt" style="color:${kl[1]}">${fmt(t.amount)}<small>ريال</small></div>` : ''}${bal ? `<div class="kind">${esc(bal)}</div>` : ''}<div class="when"><bdi>${esc(d)}</bdi><i></i><bdi>${esc(tm || '')}</bdi></div></div>
+    <div class="receipt" id="waRc">${w.shop ? `<div class="shop">${esc(w.shop)}</div>` : ''}${remHtml}${kl ? `<div class="kind">${kl[0]}</div><div class="amt" style="color:${kl[1]}">${fmt(t.amount)}<small>ريال</small></div>` : ''}${bal ? `<div class="kind">${esc(bal)}</div>` : ''}<div class="when"><bdi>${esc(d)}</bdi><i></i><bdi>${esc(tm || '')}</bdi></div></div>
     <textarea id="waText" class="rtx" hidden rows="${msg.split('\n').length}" aria-label="نص الرسالة">${esc(msg)}</textarea>
     <button type="button" class="editlink" data-act="wa-edit">${ic('edit')}<span>تعديل النص</span></button>
     <button type="button" class="gobtn" data-act="wa-go" data-cid="${c.id}" data-tid="${tid}">${ic('chat')}إرسال عبر واتساب</button>

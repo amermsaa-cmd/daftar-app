@@ -84,6 +84,28 @@ export function waMessage(state, cid, lastTxn, nowTs = Date.now()) {
 }
 
 /**
+ * رسالة «تذكير بالرصيد» الودية (من الزر اليدوي، ولاحقاً التذكير الشهري).
+ * @param {import('./ops.js').State} state
+ * @param {string} cid
+ * @param {number} [nowTs]
+ * @returns {{ text: string, state: 'debt' | 'zero' | 'credit', amount: number, shop: string, lines: string[], stamp: string } | null}
+ */
+export function waReminder(state, cid, nowTs = Date.now()) {
+  const c = state.customers.get(cid);
+  if (!c) return null;
+  const shop = waSettings(state.settings).shop;
+  const st = c.balance > 0 ? 'debt' : c.balance < 0 ? 'credit' : 'zero';
+  const amount = Math.abs(c.balance);
+  /** @type {string[]} */
+  const lines = st === 'debt' ? [`رصيدكم للمشتريات الأجلة هو : ${formatMoney(amount)} ريال`, 'نأمل منكم سرعة السداد']
+    : st === 'credit' ? [`لكم عندنا : ${formatMoney(amount)} ريال`]
+      : ['حسابكم مسدّد، لا يوجد مبلغ مستحق'];
+  lines.push('شاكرين لكم تعاملكم معنا 🌷');
+  const stamp = waStamp(nowTs);
+  return { text: [...(shop ? [shop] : []), ...lines, stamp].join('\n'), state: st, amount, shop, lines, stamp };
+}
+
+/**
  * لماذا لا نرسل رسالة تلقائية لهذه العملية؟ (null = أرسل)
  * @param {import('./ops.js').State} state
  * @param {import('./ops.js').Txn} txn
