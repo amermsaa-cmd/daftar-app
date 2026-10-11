@@ -226,7 +226,8 @@ function resultsHtml(q) {
 }
 
 function viewHome() {
-  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="search" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="scanbtn" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button></div></div>`;
+  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="search" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="scanbtn" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button></div>
+    <div id="numpad" class="numpad">${['1', '2', '3', '4', '5', '⌫', '6', '7', '8', '9', '0'].map((k) => `<button type="button" data-act="np" data-k="${k}"${k === '⌫' ? ' class="del" aria-label="مسح"' : ''}>${k}</button>`).join('')}</div></div>`;
   const body = `<div class="body"><div id="results" class="stack">${resultsHtml('')}</div></div>`;
   return page({ title: 'الرئيسية', body, nav: 'home', sub });
 }
@@ -757,6 +758,13 @@ const ACTS = {
   'sheet-close': () => closeOv(),
   'toggle-all': () => { ui.cust.all = !ui.cust.all; render(); },
   share: (el) => shareStatement(/** @type {string} */ (el.dataset.cid)),
+  np: (el) => { // أرقام تحت خانة البحث (الكيبورد الرسمي يبقى للأسماء)
+    const q = /** @type {HTMLInputElement | null} */ (document.getElementById('q'));
+    if (!q) return;
+    const k = el.dataset.k;
+    q.value = k === '⌫' ? q.value.slice(0, -1) : q.value + k;
+    q.dispatchEvent(new Event('input', { bubbles: true }));
+  },
   print: (el) => printStatement(/** @type {string} */ (el.dataset.cid)),
   edit: async (el) => { const cid = /** @type {string} */ (el.dataset.cid); if (await requireOwner()) { ui.editOk = cid; location.hash = `#/edit/${cid}`; } },
   txn: (el) => {
@@ -883,6 +891,11 @@ document.addEventListener('input', (e) => {
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }
   if (t.id === 'dq') { ui.debtQ = t.value; const pos = t.selectionStart; render(); const n = /** @type {HTMLInputElement | null} */ (document.getElementById('dq')); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
 });
+
+// صف الأرقام: يظهر مع التركيز على خانة البحث، والضغط عليه لا يُغلق الكيبورد
+document.addEventListener('focusin', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') document.getElementById('numpad')?.classList.add('on'); });
+document.addEventListener('focusout', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') document.getElementById('numpad')?.classList.remove('on'); });
+document.addEventListener('pointerdown', (e) => { if (/** @type {HTMLElement} */ (e.target).closest?.('#numpad')) e.preventDefault(); });
 
 document.addEventListener('submit', (e) => {
   e.preventDefault();

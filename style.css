@@ -229,3 +229,9 @@ button.card{font:inherit;color:inherit}
 .wago .ic{stroke:#fff}
 .wafoot .two button.wago{background:#25d366;color:#fff;border:0}
 .wafoot .two button.wago .ic{stroke:#fff}
+
+.numpad{display:none;grid-template-columns:repeat(6,1fr);gap:6px;padding:8px 0 12px;direction:ltr}
+.numpad.on{display:grid}
+.numpad button{height:46px;border:0;border-radius:10px;background:rgba(255,255,255,.1);color:#fff;font-family:inherit;font-weight:700;font-size:26px;cursor:pointer;touch-action:manipulation}
+.numpad button:active{background:rgba(255,255,255,.22)}
+.numpad .del{grid-row:span 2;height:auto;font-size:22px}
