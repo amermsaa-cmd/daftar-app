@@ -2,19 +2,19 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, waMessage as coreWaMessage,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
 import { scanSupported, scanOnce } from './scan.js';
-import { SyncClient, verifyKey, SYNC_URL } from './sync.js';
+import { SyncClient, verifyKey, SYNC_URL, notifyStatus, claimManual } from './sync.js';
 
 const VERSION = '0.2.0';
 const RELOCK_MS = 5 * 60 * 1000;
 
 /** @type {Ledger} */
 let ledger;
-const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: false, ownerPin: null, theme: 'auto', lastBackupAt: 0, syncOn: false, syncKey: '', syncCursor: 0, syncLastAt: 0, syncPushed: /** @type {Set<string>} */ (new Set()), waOn: false, waShop: '', waLast: true, waBal: true };
+const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: false, ownerPin: null, theme: 'auto', lastBackupAt: 0, syncOn: false, syncKey: '', syncCursor: 0, syncLastAt: 0, syncPushed: /** @type {Set<string>} */ (new Set()) };
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
@@ -43,35 +43,50 @@ function balHtml(c) {
   return '<span class="num">0</span>';
 }
 
-// ===== واتساب اليدوي =====
-/** رقم الجوال بصيغة دولية لرابط wa.me (يفترض السعودية لو بدأ بصفر أو بـ 5) */
-function waNumber(phone) {
-  let d = toLatin(phone || '').replace(/\D/g, '');
-  if (d.startsWith('00')) d = d.slice(2);
-  else if (d.startsWith('0')) d = '966' + d.slice(1);
-  else if (d.length === 9 && d.startsWith('5')) d = '966' + d;
-  return d;
-}
-/** نص الرسالة للعميل: الرصيد الحالي وآخر عملية (اختياري) واسم البقالة */
+// ===== واتساب: اليدوي والاحتياط للتلقائي =====
+// الإعدادات تُحفظ كعمليات في الدفتر (تتزامن بين الجوالات والجسر): wa.on / wa.auto / wa.shop / wa.bal / wa.last
+const waCfg = () => waSettings(ledger.state.settings);
+async function setWa(key, value) { ledger.setSetting(key, value); await flush(); render(); }
+/** نص الرسالة للعميل (بدون اسمه): الرصيد وآخر عملية واسم البقالة حسب الإعدادات */
 function waMessage(cid) {
   const c = ledger.customer(cid);
-  const lines = ['السلام عليكم'];
-  if (meta.waBal) lines.push(c.balance > 0 ? `رصيدك الحالي: ${fmt(c.balance)} ر.س` : c.balance < 0 ? `لك عندنا: ${fmt(-c.balance)} ر.س` : 'حسابك مسدّد، لا يوجد مبلغ مستحق');
-  if (meta.waLast) {
-    const s = ledger.state;
-    const last = [...c.txnIds].reverse().map((id) => s.txns.get(id)).find((x) => x && !x.voided && x.kind !== 'opening');
-    if (last) lines.push(`آخر عملية: ${KIND[last.kind]} ${fmt(last.amount)} ر.س`);
-  }
-  if (meta.waShop) lines.push(meta.waShop);
-  return lines.join('\n');
+  const s = ledger.state;
+  const last = [...c.txnIds].reverse().map((id) => s.txns.get(id)).find((x) => x && !x.voided && x.kind !== 'opening');
+  return coreWaMessage(s, cid, last || null);
 }
-function waSheet(cid) {
+/** حالة الجسر الآن (يُحدَّث بعد كل مزامنة وقبل قرار الإرسال) */
+const bridge = { alive: false, at: 0 };
+async function refreshBridge() {
+  if (!meta.syncOn || !meta.syncKey) { bridge.alive = false; return null; }
+  const st = await Promise.race([notifyStatus(SYNC_URL, meta.syncKey, (u, i) => fetch(u, i)), new Promise((r) => setTimeout(() => r(null), 2500))]);
+  bridge.alive = !!(st && st.bridge && st.bridge.alive); bridge.at = Date.now();
+  return st;
+}
+function waSheet(cid, tid = '') {
   const c = ledger.customer(cid);
   if (!c || !c.phone) { toast('لا يوجد رقم جوال لهذا العميل'); return; }
   sheet(`<b>رسالة للعميل</b>
     <textarea id="waText" class="keyin" rows="5" style="text-align:start;line-height:1.7">${esc(waMessage(cid))}</textarea>
     <div class="tag">يمكنك تعديل النص قبل الإرسال. لن تُرسل إلا بعد ضغطك «إرسال» داخل واتساب.</div>
-    <div class="two"><button data-act="close-ov">إلغاء</button><button class="go" data-act="wa-go" data-cid="${c.id}" style="background:#25d366;color:#fff">${ic('chat')}فتح واتساب</button></div>`);
+    <div class="two"><button data-act="close-ov">إلغاء</button><button class="go" data-act="wa-go" data-cid="${c.id}" data-tid="${tid}" style="background:#25d366;color:#fff">${ic('chat')}فتح واتساب</button></div>`);
+}
+/** بعد حفظ عملية: لو الجسر حيّ ننتظر إرساله وإلا تظهر الورقة اليدوية فوراً */
+async function afterSaveWa(cid, tid) {
+  const cfg = waCfg();
+  const c = ledger.customer(cid);
+  if (!c || !c.phone || c.waOff) return;
+  let auto = false;
+  if (cfg.auto && meta.syncOn) { await refreshBridge(); auto = bridge.alive; }
+  if (!auto) { if (cfg.on) window.setTimeout(() => waSheet(cid, tid), 150); return; }
+  schedSync(100);
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 4000));
+    const st = await notifyStatus(SYNC_URL, meta.syncKey, (u, x) => fetch(u, x));
+    const it = st && st.items.find((/** @type {any} */ x) => x.op === tid);
+    if (it && it.status === 'sent') { toast('✓ أُرسلت الرسالة للعميل'); return; }
+    if (it && it.status === 'failed') break;
+  }
+  if (cfg.on) { toast('تعذّر الإرسال التلقائي، أرسلها يدوياً'); waSheet(cid, tid); } else toast('لم تُرسل الرسالة التلقائية للعميل');
 }
 
 // رسالة تطمين بعد حفظ العملية: وسط الشاشة بلون العملية وتختفي وحدها
@@ -139,6 +154,7 @@ async function runSync() {
   if (!syncClient || locked) return;
   const st = await syncClient.sync();
   if (st === 'idle') { meta.syncLastAt = syncClient.lastSyncAt; await db.setMeta('syncLastAt', meta.syncLastAt); }
+  if (location.hash.startsWith('#/settings')) await refreshBridge();
   if (location.hash.startsWith('#/settings') && !ui.syncSetup) render();
   return st;
 }
@@ -229,7 +245,7 @@ function viewCustomer(cid) {
       <div class="tag">${ui.cust.all ? 'كل الحركات' : 'المستحق منذ آخر تصفية'}</div></div>`;
   const body = `<div class="body">
     <a class="btn main" href="#/record/${c.id}">${ic('cart')}تسجيل عملية</a>
-    ${meta.waOn && c.phone ? `<button class="btn wabtn" data-act="wa-open" data-cid="${c.id}">${ic('chat')}إرسال الرصيد للعميل عبر واتساب</button>` : ''}
+    ${waCfg().on && c.phone ? `<button class="btn wabtn" data-act="wa-open" data-cid="${c.id}">${ic('chat')}إرسال الرصيد للعميل عبر واتساب</button>` : ''}
     <div class="two"><button class="btn" data-act="share" data-cid="${c.id}">${ic('share')}مشاركة</button><button class="btn" data-act="print" data-cid="${c.id}">${ic('print')}طباعة</button></div>
     <div class="two"><button class="btn" data-act="toggle-all">${ic('list')}${ui.cust.all ? 'الدورة الحالية' : 'عرض الكل'}</button><button class="btn" data-act="edit" data-cid="${c.id}">${ic('gear')}تعديل البيانات</button></div>
     ${days || '<div class="card center tag">لا توجد حركات بعد</div>'}</div>`;
@@ -257,6 +273,7 @@ function viewEdit(cid) {
   const body = `<div class="body"><form id="editForm" class="stack" data-cid="${c.id}" autocomplete="off">
     <div class="form"><label for="f-name">اسم العميل</label><input id="f-name" required value="${esc(c.name)}"></div>
     <div class="form"><label for="f-phone">رقم الجوال</label><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" value="${esc(c.phone || '')}"></div>
+    <label class="sw" for="f-wa"><span>إشعار واتساب تلقائي لهذا العميل</span><input id="f-wa" type="checkbox" ${c.waOff ? '' : 'checked'} style="width:22px;height:22px"></label>
     <div class="tag">كل تعديل يُسجَّل في الأحداث ويمكن الرجوع عنه.</div>
     <div id="formErr"></div>
     <button class="btn main" type="submit">حفظ التعديل</button></form></div>`;
@@ -331,13 +348,17 @@ function syncCardHtml() {
 }
 
 function waCardHtml() {
-  const inner = meta.waOn ? `<div class="stack"><label class="tag" for="waShopIn">اسم البقالة في آخر الرسالة</label>
-      <input id="waShopIn" class="keyin" style="text-align:start" autocomplete="off" placeholder="مثال: بقالة الأمل" value="${esc(meta.waShop)}">
-      <div class="sw"><span>تضمين الرصيد</span>${tgl('toggle-wa-bal', meta.waBal)}</div>
-      <div class="sw"><span>تضمين آخر عملية</span>${tgl('toggle-wa-last', meta.waLast)}</div>
-      <div class="tag">بعد حفظ كل عملية تظهر رسالة العميل مباشرة (وتتجاوزها بـ «إلغاء»)، ويبقى الزر في حساب العميل. لعميل له رقم جوال فقط، والرسالة تُرسل منك داخل واتساب.</div></div>`
-    : `<div class="tag">مطفأة افتراضياً. لا يظهر الزر إلا لعميل له رقم جوال.</div>`;
-  return acc('wa', 'chat', 'أزرار الواتساب', meta.waOn ? 'مفعّلة' : 'مطفأة', `<div class="sw"><span>إرسال رصيد العميل برسالة جاهزة</span>${tgl('toggle-wa', meta.waOn)}</div>${inner}`);
+  const w = waCfg();
+  const inner = `<div class="stack">
+      <div class="sw"><span>الإرسال التلقائي بعد كل عملية (يحتاج الجسر)</span>${tgl('toggle-wa-auto', w.auto)}</div>
+      <div class="sw"><span>أزرار الواتساب اليدوية (احتياط)</span>${tgl('toggle-wa', w.on)}</div>
+      <label class="tag" for="waShopIn">اسم البقالة في آخر الرسالة</label>
+      <input id="waShopIn" class="keyin" style="text-align:start" autocomplete="off" placeholder="مثال: بقالة الأمل" value="${esc(w.shop)}">
+      <div class="sw"><span>تضمين الرصيد</span>${tgl('toggle-wa-bal', w.bal)}</div>
+      <div class="sw"><span>تضمين آخر عملية</span>${tgl('toggle-wa-last', w.last)}</div>
+      <div class="tag">${meta.syncOn ? (bridge.alive ? 'الجسر شغّال ✓' : 'الجسر غير متصل الآن: تُستعمل الأزرار اليدوية') : 'يحتاج تفعيل المزامنة مع السيرفر'}</div>
+      <div class="tag">لإيقاف الإشعار لعميل معيّن: تعديل بيانات العميل.</div></div>`;
+  return acc('wa', 'chat', 'رسائل الواتساب', w.auto ? 'تلقائي' : w.on ? 'يدوي' : 'مطفأة', inner);
 }
 
 function viewSettings() {
@@ -485,11 +506,10 @@ async function saveRecord() {
     await flush();
     const c = ledger.customer(r.cid);
     savedToast(r.kind, `${KIND[r.kind]} ${fmt(amount)} · ${c.name}`);
-    const waCid = meta.waOn && c.phone ? r.cid : '';
     ui.rec = null;
     location.hash = '#/home';
-    // بعد الحفظ تظهر رسالة العميل مباشرة (يتجاوزها الموظف بـ «إلغاء»)
-    if (waCid) window.setTimeout(() => waSheet(waCid), 150);
+    // الجسر حيّ: ننتظر إرساله ونتنبه لو فشل. وإلا ورقة الرسالة اليدوية فوراً
+    afterSaveWa(r.cid, res.txn.id);
   } catch (e) {
     toast(e instanceof LedgerError ? (ERR[e.code] || e.code) : 'تعذّر الحفظ');
   }
@@ -523,7 +543,8 @@ async function submitEdit(cid, force = false) {
   const name = /** @type {HTMLInputElement} */ (document.getElementById('f-name')).value;
   const phone = /** @type {HTMLInputElement} */ (document.getElementById('f-phone')).value;
   try {
-    ledger.updateCustomer(cid, { name, phone, force });
+    const waOff = !(/** @type {HTMLInputElement} */ (document.getElementById('f-wa'))).checked;
+    ledger.updateCustomer(cid, { name, phone, waOff, force });
     await flush();
     ui.editOk = null;
     toast('✓ تم حفظ التعديل');
@@ -723,13 +744,19 @@ const ACTS = {
   restore: () => document.getElementById('restoreFile')?.click(),
   'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
   acc: (el) => { const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render(); },
-  'toggle-wa': async () => { meta.waOn = !meta.waOn; await db.setMeta('waOn', meta.waOn); render(); },
-  'toggle-wa-bal': async () => { meta.waBal = !meta.waBal; await db.setMeta('waBal', meta.waBal); render(); },
-  'toggle-wa-last': async () => { meta.waLast = !meta.waLast; await db.setMeta('waLast', meta.waLast); render(); },
-  'wa-open': (el) => { document.querySelector('.savedtoast')?.remove(); waSheet(/** @type {string} */ (el.dataset.cid)); },
-  'wa-go': (el) => {
+  'toggle-wa': () => setWa('wa.on', !waCfg().on),
+  'toggle-wa-auto': () => setWa('wa.auto', !waCfg().auto),
+  'toggle-wa-bal': () => setWa('wa.bal', !waCfg().bal),
+  'toggle-wa-last': () => setWa('wa.last', !waCfg().last),
+  'wa-open': (el) => { document.querySelector('.savedtoast')?.remove(); waSheet(/** @type {string} */ (el.dataset.cid), el.dataset.tid || ''); },
+  'wa-go': async (el) => {
     const c = ledger.customer(/** @type {string} */ (el.dataset.cid));
     const text = /** @type {HTMLTextAreaElement} */ (document.getElementById('waText')).value;
+    const tid = el.dataset.tid;
+    if (tid && meta.syncOn && meta.syncKey) { // نأخذ الدور من السيرفر حتى لا يرسلها الجسر أيضاً
+      const r = await claimManual(SYNC_URL, meta.syncKey, tid, (u, i) => fetch(u, i));
+      if (r && !r.ok && (r.status === 'sent' || r.status === 'sending')) { closeOv(); toast('أُرسلت تلقائياً للعميل ✓'); return; }
+    }
     closeOv();
     window.open(`https://wa.me/${waNumber(c.phone)}?text=${encodeURIComponent(text)}`, '_blank');
   },
@@ -800,7 +827,6 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
-  if (t.id === 'waShopIn') { meta.waShop = t.value; db.setMeta('waShop', t.value); }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }
   if (t.id === 'dq') { ui.debtQ = t.value; const pos = t.selectionStart; render(); const n = /** @type {HTMLInputElement | null} */ (document.getElementById('dq')); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
@@ -815,6 +841,7 @@ document.addEventListener('submit', (e) => {
 
 document.addEventListener('change', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
+  if (t.id === 'waShopIn') { const v = t.value.trim(); if (v !== waCfg().shop) { ledger.setSetting('wa.shop', v); flush(); } }
   if (t.id === 'restoreFile' && t.files && t.files[0]) { restoreFrom(t.files[0]); t.value = ''; }
 });
 
@@ -843,10 +870,6 @@ async function boot() {
   meta.syncCursor = await db.getMeta('syncCursor', 0);
   meta.syncLastAt = await db.getMeta('syncLastAt', 0);
   meta.syncPushed = new Set(await db.getMeta('syncPushed', []));
-  meta.waOn = await db.getMeta('waOn', false);
-  meta.waShop = await db.getMeta('waShop', '');
-  meta.waLast = await db.getMeta('waLast', true);
-  meta.waBal = await db.getMeta('waBal', true);
   ledger = new Ledger({ deviceId, ops });
   for (const id of ledger.opIds()) saved.add(id);
   applyTheme();

@@ -34,6 +34,7 @@
  * @property {string | null} phone
  * @property {number | null} cap  سقف خاص بالهللة (null = السقف العام)
  * @property {boolean} archived
+ * @property {boolean} waOff      إشعار الواتساب التلقائي مطفأ لهذا العميل
  * @property {Freeze | null} freeze
  * @property {number} createdAt
  * @property {number} balance     الرصيد المستحق بالهللة (موجب = على العميل)
@@ -148,6 +149,7 @@ function applyCreate(s, op) {
     phone: typeof d.phone === 'string' && d.phone.trim() ? d.phone.trim() : null,
     cap: Number.isInteger(d.cap) && d.cap > 0 ? d.cap : null,
     archived: false,
+    waOff: false,
     freeze: null,
     createdAt: op.ts,
     balance: 0,
@@ -199,6 +201,7 @@ function applyOther(s, op) {
       if (!c) return void s.problems.push({ opId: op.id, problem: 'unknown-customer' });
       if (typeof d.name === 'string' && d.name.trim()) c.name = d.name.trim();
       if ('phone' in d) c.phone = typeof d.phone === 'string' && d.phone.trim() ? d.phone.trim() : null;
+      if ('waOff' in d) c.waOff = !!d.waOff;
       if ('cap' in d) c.cap = Number.isInteger(d.cap) && d.cap > 0 ? d.cap : null;
       return;
     }

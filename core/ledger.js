@@ -141,7 +141,7 @@ export class Ledger {
   /**
    * تعديل بيانات عميل (الاسم/الجوال/السقف).
    * @param {string} cid
-   * @param {{name?: string, phone?: string | null, cap?: number | null, force?: boolean}} patch
+   * @param {{name?: string, phone?: string | null, cap?: number | null, waOff?: boolean, force?: boolean}} patch
    */
   updateCustomer(cid, patch) {
     const c = this.customer(cid);
@@ -164,6 +164,7 @@ export class Ledger {
       }
       data.phone = phone;
     }
+    if (patch.waOff !== undefined) data.waOff = !!patch.waOff;
     if (patch.cap !== undefined) data.cap = Number.isInteger(patch.cap) && /** @type {number} */ (patch.cap) > 0 ? patch.cap : null;
     return this.record(OP.CUSTOMER_UPDATE, data);
   }

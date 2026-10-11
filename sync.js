@@ -126,3 +126,31 @@ export class SyncClient {
     return this.state;
   }
 }
+
+/**
+ * حالة الإشعارات التلقائية: هل الجسر حيّ، وحالة رسائل العمليات الأخيرة.
+ * @param {string} baseUrl @param {string} key @param {typeof fetch} fetchFn
+ * @returns {Promise<{bridge: {alive: boolean, lastSeen: number, waOk: boolean}, items: {op: string, status: string, at: number}[]} | null>}
+ */
+export async function notifyStatus(baseUrl, key, fetchFn) {
+  try {
+    const res = await fetchFn(`${baseUrl}/v1/notify/status`, { headers: { Authorization: `Bearer ${key.trim()}` } });
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+
+/**
+ * يأخذ الموظف رسالة العملية يدوياً. ok=false يعني أن الجسر أرسلها أو يرسلها الآن (فلا نكررها).
+ * يرجع null لو تعذّر الاتصال (فنكمل يدوياً دون منع الموظف).
+ * @param {string} baseUrl @param {string} key @param {string} tid @param {typeof fetch} fetchFn
+ * @returns {Promise<{ok: boolean, status: string | null} | null>}
+ */
+export async function claimManual(baseUrl, key, tid, fetchFn) {
+  try {
+    const res = await fetchFn(`${baseUrl}/v1/notify`, {
+      method: 'POST', headers: { Authorization: `Bearer ${key.trim()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op: tid, status: 'manual' }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
