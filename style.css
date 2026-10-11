@@ -216,7 +216,7 @@ button.card{font:inherit;color:inherit}
 .two3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .btn.sel{border-color:var(--buy)}
 
-.sheet.wa>div{padding:0;gap:0;overflow:hidden}
+
 .wahead{display:flex;align-items:center;gap:12px;padding:12px 16px;background:#075e54;color:#fff}
 .wapic{width:38px;height:38px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center}
 .wapic .ic{stroke:#fff;width:22px;height:22px}
@@ -235,3 +235,27 @@ button.card{font:inherit;color:inherit}
 .numpad button{height:46px;border:0;border-radius:10px;background:rgba(255,255,255,.1);color:#fff;font-family:inherit;font-weight:700;font-size:26px;cursor:pointer;touch-action:manipulation}
 .numpad button:active{background:rgba(255,255,255,.22)}
 .numpad .del{grid-row:span 2;height:auto;font-size:22px}
+
+.sheet.nwa{background:rgba(5,10,16,.62);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.sheet.nwa>div{border-radius:26px 26px 0 0;padding:10px 18px calc(18px + env(safe-area-inset-bottom,0px));gap:12px;box-shadow:0 -10px 30px rgba(0,0,0,.35)}
+.nwa .grab{width:44px;height:5px;border-radius:3px;background:var(--line);align-self:center;margin-bottom:2px;flex:none}
+.nwhead{display:flex;align-items:center;gap:12px}
+.nwhead .av{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#25d366,#128c7e);color:#fff;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;flex:none}
+.nwhead .who{flex:1;min-width:0;display:flex;flex-direction:column}.nwhead .who b{font-size:17px}.nwhead .who small{color:var(--muted);font-size:13px;align-self:flex-start}
+.nwhead .chip{display:flex;align-items:center;gap:5px;font-size:12px;color:#25d366;border:1px solid #25d36666;border-radius:20px;padding:4px 10px}
+.nwhead .chip .ic{width:15px;height:15px;stroke:#25d366}
+.receipt{background:var(--bg);border:1px solid var(--line);border-radius:18px;padding:16px 14px 14px;text-align:center;display:flex;flex-direction:column;gap:4px;border-top:4px solid #25d366}
+.receipt[hidden]{display:none}
+.receipt .shop{font-size:14px;color:var(--muted)}
+.receipt .kind{font-size:15px;font-weight:700}
+.receipt .amt{font-size:42px;font-weight:800;line-height:1.15;direction:ltr}
+.receipt .amt small{font-size:15px;font-weight:600;margin-inline-start:6px;color:var(--muted)}
+.receipt .when{display:flex;align-items:center;justify-content:center;gap:10px;font-size:13px;color:var(--muted);margin-top:4px}
+.receipt .when i{width:4px;height:4px;border-radius:50%;background:var(--muted)}
+.rtx{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:14px;background:var(--bg);color:var(--txt);font:inherit;line-height:1.8;padding:10px 12px;resize:none;text-align:start}
+.rtx[hidden]{display:none}
+.editlink{align-self:center;display:flex;align-items:center;gap:6px;background:none;border:0;color:var(--muted);font:inherit;font-size:13px;cursor:pointer;padding:2px 8px}
+.editlink .ic{width:15px;height:15px}
+.gobtn{display:flex;align-items:center;justify-content:center;gap:10px;background:#25d366;color:#fff;border:0;border-radius:16px;padding:15px;font:inherit;font-size:17px;font-weight:800;cursor:pointer;box-shadow:0 6px 16px rgba(37,211,102,.35)}
+.gobtn .ic{stroke:#fff;width:22px;height:22px}
+.nocancel{background:none;border:0;color:var(--muted);font:inherit;font-size:15px;padding:6px;cursor:pointer}

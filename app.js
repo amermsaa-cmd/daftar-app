@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waMessage as coreWaMessage,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, waMessage as coreWaMessage,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -74,11 +74,22 @@ function waSheet(cid, tid = '') {
   const c = ledger.customer(cid);
   if (!c || !c.phone) { toast('لا يوجد رقم جوال لهذا العميل'); return; }
   const msg = waMessage(cid);
-  const el = sheet(`<div class="wahead"><span class="wapic">${ic('chat')}</span><span class="wanm"><b>${esc(c.name)}</b><small dir="ltr">${esc(c.phone)}</small></span></div>
-    <div class="wabody"><textarea id="waText" rows="${msg.split('\n').length}" aria-label="نص الرسالة">${esc(msg)}</textarea></div>
-    <div class="wafoot"><div class="two"><button data-act="close-ov">إلغاء</button><button class="wago" data-act="wa-go" data-cid="${c.id}" data-tid="${tid}">${ic('chat')}فتح واتساب</button></div>
-    <div class="tag center">اضغط على النص لتعديله. لا تُرسل إلا بضغطك «إرسال» داخل واتساب.</div></div>`);
-  el.classList.add('wa');
+  const s = ledger.state;
+  const w = waCfg();
+  const t = (tid && s.txns.get(tid)) || [...c.txnIds].reverse().map((id) => s.txns.get(id)).find((x) => x && !x.voided && x.kind !== 'opening') || null;
+  const KL = { purchase: ['مشترياتك بالآجل', 'var(--buy)'], payment: ['تسديدك', 'var(--pay)'], return: ['مرتجعك', 'var(--ret)'] };
+  const kl = t && w.last ? KL[t.kind] : null;
+  const [d, tm] = waStamp(t ? t.ts : Date.now()).split(/\u00A0+-\u00A0+/);
+  const bal = w.bal ? (c.balance > 0 ? `رصيدك الحالي : ${fmt(c.balance)} ريال` : c.balance < 0 ? `لك عندنا : ${fmt(-c.balance)} ريال` : 'حسابك مسدّد') : '';
+  const el = sheet(`<div class="grab"></div>
+    <div class="nwhead"><span class="av">${esc([...c.name][0] || '؟')}</span><div class="who"><b>${esc(c.name)}</b><small dir="ltr">${esc(c.phone)}</small></div><span class="chip">${ic('chat')}واتساب</span></div>
+    <div class="receipt" id="waRc">${w.shop ? `<div class="shop">${esc(w.shop)}</div>` : ''}${kl ? `<div class="kind">${kl[0]}</div><div class="amt" style="color:${kl[1]}">${fmt(t.amount)}<small>ريال</small></div>` : ''}${bal ? `<div class="kind">${esc(bal)}</div>` : ''}<div class="when"><bdi>${esc(d)}</bdi><i></i><bdi>${esc(tm || '')}</bdi></div></div>
+    <textarea id="waText" class="rtx" hidden rows="${msg.split('\n').length}" aria-label="نص الرسالة">${esc(msg)}</textarea>
+    <button type="button" class="editlink" data-act="wa-edit">${ic('edit')}<span>تعديل النص</span></button>
+    <button type="button" class="gobtn" data-act="wa-go" data-cid="${c.id}" data-tid="${tid}">${ic('chat')}إرسال عبر واتساب</button>
+    <button type="button" class="nocancel" data-act="close-ov">إلغاء</button>
+    <div class="tag center">لا يُرسل شيء إلا بضغطك «إرسال» داخل واتساب</div>`);
+  el.classList.add('nwa');
 }
 /** بعد حفظ عملية: لو الجسر حيّ ننتظر إرساله وإلا تظهر الورقة اليدوية فوراً */
 async function afterSaveWa(cid, tid) {
@@ -798,6 +809,15 @@ const ACTS = {
   'toggle-wa-bal': () => setWa('wa.bal', !waCfg().bal),
   'toggle-wa-last': () => setWa('wa.last', !waCfg().last),
   'wa-open': (el) => { document.querySelector('.savedtoast')?.remove(); waSheet(/** @type {string} */ (el.dataset.cid), el.dataset.tid || ''); },
+  'wa-edit': (el) => {
+    const t = /** @type {HTMLTextAreaElement} */ (document.getElementById('waText'));
+    const r = document.getElementById('waRc');
+    if (!t || !r) return;
+    const toEdit = t.hidden;
+    t.hidden = !toEdit; r.hidden = toEdit;
+    const lbl = el.querySelector('span'); if (lbl) lbl.textContent = toEdit ? 'عرض الشكل' : 'تعديل النص';
+    if (toEdit) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; t.focus(); }
+  },
   'wa-go': async (el) => {
     const c = ledger.customer(/** @type {string} */ (el.dataset.cid));
     const text = /** @type {HTMLTextAreaElement} */ (document.getElementById('waText')).value;
