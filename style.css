@@ -5,7 +5,7 @@
   --pay:#f5a524; --pay-ink:#2a1a00;
   --ret:#9b6be0; --ret-ink:#1a0b33;
   --danger:#ef8e8e; --chip:#243444; --field:#0e1620; --ic:#fff;
-  --kind:var(--buy); --kind-ink:var(--buy-ink);
+  --kind:var(--buy); --kind-ink:var(--buy-ink); --hd:#080d13;
   color-scheme:dark;
 }
 @media (prefers-color-scheme: light){
@@ -28,15 +28,18 @@ body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",Tahoma,"Noto S
 #app{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin-inline:auto;position:relative;overflow:hidden}
 button{font:inherit;color:inherit}
 .ic{width:20px;height:20px;fill:none;stroke:var(--ic);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
-.top{padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;font-weight:700;flex:none}
+.top{padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px;background:var(--hd);--ic:#fff;color:#e7edf3;display:flex;align-items:center;gap:10px;font-weight:700;flex:none}
+.top .tag{color:#9aa9b8}
+.top .num.owe{color:#ef8e8e}
 .top .sp{flex:1}
 .top .back{background:transparent;border:0;padding:4px;display:flex;cursor:pointer}
 .top .back .ic{transform:scaleX(-1)}
 .dotsbtn{margin-inline-start:auto;background:transparent;border:0;padding:4px 6px;cursor:pointer;display:flex;border-radius:8px}
 .body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-height:0}
-.nav{display:flex;background:var(--card);border-top:1px solid var(--line);flex:none;padding-bottom:env(safe-area-inset-bottom,0px)}
-.nav a{flex:1;padding:9px 0 8px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted);text-decoration:none}
-.nav a.on{color:var(--txt);font-weight:700}
+.nav{display:flex;background:var(--hd);--ic:#fff;border-top:1px solid #1d2935;flex:none;padding-bottom:env(safe-area-inset-bottom,0px)}
+.nav a{flex:1;padding:9px 0 8px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:#9aa9b8;opacity:.75;text-decoration:none}
+.nav a.on{color:#fff;opacity:1;font-weight:700}
+.nav a.on .ic{stroke-width:2.2}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
 a.card{color:inherit;text-decoration:none;display:flex}
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--chip);color:var(--txt);border:1px solid var(--line);border-radius:12px;padding:12px;font-weight:700;cursor:pointer;text-decoration:none}
@@ -115,8 +118,27 @@ a.card{color:inherit;text-decoration:none;display:flex}
 .row .num small{display:block;color:var(--muted);font-size:11px;font-weight:400;text-align:end}
 button.card{font:inherit;color:inherit}
 
-.rechead{background:var(--card);border-bottom:1px solid var(--line);padding-bottom:12px;flex:none}
-.rechead .top{background:transparent;border:0;font-size:19px;padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:8px}
+/* القسم الداكن العلوي المستقل (كل الشاشات) */
+.rechead{background:var(--hd);--ic:#fff;color:#e7edf3;padding-bottom:18px;flex:none}
+.rechead .top{background:transparent;padding-bottom:8px}
+.rechead .tag,.rechead small{color:#9aa9b8}
+.rechead .num.owe,.rechead .big.owe{color:#ef8e8e}
+.rechead .big.pos{color:#3ebd93}
+.rechead .kinds button{background:#141c26;border-color:#26323f;color:#e7edf3}
+.rechead .kinds button[aria-pressed=true]{background:var(--kind);color:var(--kind-ink);border-color:transparent}
+.rechead .top{font-size:19px}
+.herosearch{padding:6px 16px 0}
+.big-field{background:#141c26;border-color:#26323f;color:#9aa9b8;border-radius:14px;min-height:72px;padding:8px 10px 8px 8px}
+.big-field .ic{width:24px;height:24px}
+.big-field input{font-size:24px;direction:ltr;text-align:right;color:#e7edf3}
+.big-field input::placeholder{font-size:20px;direction:rtl;color:#7f8fa0}
+.scanbtn{width:56px;height:56px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--buy);border:0;border-radius:14px;cursor:pointer;padding:0}
+.scanbtn .ic{width:28px;height:28px;stroke:var(--buy-ink)}
+.herobox{padding:0 16px}
+.herobox .big{padding:2px 0 0}
+.herostat{padding:0 16px}
+.herostat .card{background:#141c26;border-color:#26323f}
+.histbtn{padding:6px 12px;font-size:13px;border:1px solid var(--line);color:var(--txt);text-decoration:none;flex:none}
 .recinfo{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 16px 12px;color:inherit;text-decoration:none}
 .recinfo b{font-size:17px}
 .recinfo small{color:var(--muted);font-size:12px;display:block}

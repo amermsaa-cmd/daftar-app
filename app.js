@@ -26,6 +26,7 @@ const $ov = /** @type {HTMLElement} */ (document.getElementById('ov'));
 
 // ===== أدوات عرض =====
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const toLatin = (v) => v.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x6f0));
 const fmt = (h) => (h / 100).toLocaleString('en-US', { minimumFractionDigits: h % 100 ? 2 : 0, maximumFractionDigits: 2 });
 const KIND = { purchase: 'شراء', payment: 'تسديد', return: 'مرتجع', opening: 'رصيد سابق' };
 const PILL = { purchase: 'buy', payment: 'pay', return: 'ret', opening: 'open' };
@@ -78,23 +79,29 @@ function page({ title, back = '', body, nav = '', extra = '', style = '', sub = 
 }
 
 // ===== الشاشات =====
-function recentCustomers() {
-  const s = ledger.state;
-  const last = new Map();
-  for (const t of s.txns.values()) if (!t.voided && t.ts > (last.get(t.cid) || 0)) last.set(t.cid, t.ts);
-  return [...s.customers.values()].filter((c) => !c.archived)
-    .sort((a, b) => (last.get(b.id) || b.createdAt) - (last.get(a.id) || a.createdAt)).slice(0, 8);
+// نتائج البحث: الصف يفتح التسجيل، وزر "السجل" يفتح كشف الحساب
+function customerRows(list) {
+  return list.map((c) => `<div class="card row"><a class="nm" href="#/record/${c.id}" style="flex:1;color:inherit;text-decoration:none"><b>${esc(c.name)}</b><small>رقم ${c.codeNo}</small></a>${balHtml(c)}<a class="pill open histbtn" href="#/customer/${c.id}">السجل</a></div>`).join('');
 }
 
-function customerRows(list) {
-  return list.map((c) => `<a class="card row" href="#/record/${c.id}"><div class="nm"><b>${esc(c.name)}</b><small>رقم ${c.codeNo}</small></div>${balHtml(c)}</a>`).join('');
+// آخر العمليات في الرئيسية (بدون أرصدة): كل صف يفتح حساب العميل
+function recentOpsHtml() {
+  const s = ledger.state;
+  const list = [...s.txns.values()].filter((t) => !t.voided && t.kind !== 'opening' && s.customers.has(t.cid))
+    .sort((a, b) => b.ts - a.ts).slice(0, 12);
+  if (!list.length) return '';
+  const today = new Date().toDateString();
+  return `<div class="tag">آخر العمليات</div>` + list.map((t) => {
+    const d = new Date(t.ts);
+    const when = (d.toDateString() === today ? 'اليوم ' : dayFmt.format(d) + ' ') + timeFmt.format(d);
+    return `<a class="card row" href="#/customer/${t.cid}"><div class="nm"><b>${esc(s.customers.get(t.cid).name)}</b><small>${when}</small></div><span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span><span class="num">${fmt(t.amount)}</span></a>`;
+  }).join('');
 }
 
 function resultsHtml(q) {
   if (!q.trim()) {
-    const list = recentCustomers();
-    if (!list.length) return `<div class="card center stack"><div>لا يوجد عملاء بعد</div><a class="btn main" href="#/add">${ic('user-plus')}إضافة أول عميل</a></div>`;
-    return `<div class="tag">آخر العملاء</div>${customerRows(list)}`;
+    if (!ledger.state.customers.size) return `<div class="card center stack"><div>لا يوجد عملاء بعد</div><a class="btn main" href="#/add">${ic('user-plus')}إضافة أول عميل</a></div>`;
+    return recentOpsHtml() || '<div class="card center tag">ابحث عن عميل أو امسح بطاقته لتسجيل عملية</div>';
   }
   const list = ledger.search(q);
   if (!list.length) return `<div class="card center stack"><div>لا يوجد عميل بهذا الاسم أو الرقم</div><button class="btn" data-act="add-from-search">${ic('user-plus')}إضافة عميل جديد</button></div>`;
@@ -102,10 +109,9 @@ function resultsHtml(q) {
 }
 
 function viewHome() {
-  const body = `<div class="body">
-    <div class="field">${ic('search')}<input id="q" type="search" inputmode="search" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="btn main" data-act="scan" aria-label="مسح بطاقة العميل" style="width:40px;height:40px;padding:0;border-radius:10px">${ic('scan')}</button></div>
-    <div id="results" class="stack">${resultsHtml('')}</div></div>`;
-  return page({ title: 'الرئيسية', body, nav: 'home' });
+  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="search" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="scanbtn" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button></div></div>`;
+  const body = `<div class="body"><div id="results" class="stack">${resultsHtml('')}</div></div>`;
+  return page({ title: 'الرئيسية', body, nav: 'home', sub });
 }
 
 function viewRecord(cid) {
@@ -123,7 +129,7 @@ function viewRecord(cid) {
     <div class="big" id="amt">${esc(ui.rec.amt || '0')}</div>
     <div class="keys">${keys}</div>
     <button class="save" data-act="save">حفظ</button></div>`;
-  return page({ title: 'تسجيل عملية', back: '#/home', sub, body, style: `--kind:var(--${v});--kind-ink:var(--${v}-ink)` });
+  return page({ title: 'تسجيل عملية', back: '#/home', nav: '-', sub, body, style: `--kind:var(--${v});--kind-ink:var(--${v}-ink)` });
 }
 
 function viewCustomer(cid) {
@@ -135,17 +141,16 @@ function viewCustomer(cid) {
     [...d.rows].reverse().map(({ txn: t, after }) => `<button class="card row" style="width:100%;text-align:inherit;cursor:pointer" data-act="txn" data-tid="${t.id}">
       <span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span><span class="tag">${timeFmt.format(t.ts)}${t.note ? ' · ' + esc(t.note) : ''}</span>
       <span class="num">${signed(t)}<small>${fmt(after)}</small></span></button>`).join('')).join('');
-  const body = `<div class="body">
-    <div class="card center"><b style="font-size:18px">${esc(c.name)}</b>
+  const sub = `<div class="center herobox"><b style="font-size:20px">${esc(c.name)}</b>
       <div class="tag">رقم ${c.codeNo}${c.phone ? ' · ' + esc(c.phone) : ''}</div>
-      <div class="big ${c.balance > 0 ? 'owe' : c.balance < 0 ? 'pos' : ''}" style="padding-bottom:0">${c.balance < 0 ? 'له ' : ''}${fmt(Math.abs(c.balance))}</div>
-      <div class="tag">${ui.cust.all ? 'كل الحركات' : 'المستحق منذ آخر تصفية'}</div>
-</div>
+      <div class="big ${c.balance > 0 ? 'owe' : c.balance < 0 ? 'pos' : ''}">${c.balance < 0 ? 'له ' : ''}${fmt(Math.abs(c.balance))}</div>
+      <div class="tag">${ui.cust.all ? 'كل الحركات' : 'المستحق منذ آخر تصفية'}</div></div>`;
+  const body = `<div class="body">
     <a class="btn main" href="#/record/${c.id}">${ic('cart')}تسجيل عملية</a>
     <div class="two"><button class="btn" data-act="share" data-cid="${c.id}">${ic('share')}مشاركة</button><button class="btn" data-act="print" data-cid="${c.id}">${ic('print')}طباعة</button></div>
     <div class="two"><button class="btn" data-act="toggle-all">${ic('list')}${ui.cust.all ? 'الدورة الحالية' : 'عرض الكل'}</button><button class="btn" data-act="edit" data-cid="${c.id}">${ic('gear')}تعديل البيانات</button></div>
     ${days || '<div class="card center tag">لا توجد حركات بعد</div>'}</div>`;
-  return page({ title: 'حساب العميل', back: '#/home', body });
+  return page({ title: 'حساب العميل', back: '#/home', nav: '-', sub, body });
 }
 
 function viewAdd() {
@@ -159,7 +164,7 @@ function viewAdd() {
     <button class="btn main" type="submit">حفظ العميل</button></form>
     ${hasContacts ? '' : '<div class="tag center">اختيار العميل من جهات الاتصال يعمل على كروم في أندرويد.</div>'}</div>`;
   ui.addPrefill = '';
-  return page({ title: 'إضافة عميل', back: '#/settings', body });
+  return page({ title: 'إضافة عميل', back: '#/settings', nav: 'settings', body });
 }
 
 function viewEdit(cid) {
@@ -172,7 +177,7 @@ function viewEdit(cid) {
     <div class="tag">كل تعديل يُسجَّل في الأحداث ويمكن الرجوع عنه.</div>
     <div id="formErr"></div>
     <button class="btn main" type="submit">حفظ التعديل</button></form></div>`;
-  return page({ title: 'تعديل العميل', back: `#/customer/${cid}`, body });
+  return page({ title: 'تعديل العميل', back: `#/customer/${cid}`, nav: '-', body });
 }
 
 function viewDebts() {
@@ -182,10 +187,10 @@ function viewDebts() {
   const q = ui.debtQ.trim();
   const shown = q ? rows.filter((r) => ledger.search(q, { limit: 500 }).some((c) => c.id === r.customer.id)) : rows;
   const list = shown.map((r) => `<a class="card row" href="#/customer/${r.customer.id}"><div class="nm"><b>${esc(r.customer.name)}</b><small>${r.days === 0 ? 'آخر حركة اليوم' : `منذ ${r.days} يوم`}</small></div><span class="num owe">${fmt(r.customer.balance)}</span></a>`).join('');
+  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="dq" type="search" autocomplete="off" placeholder="ابحث في الجدول" value="${esc(ui.debtQ)}"></div></div>`;
   const body = `<div class="body">
-    <div class="field">${ic('search')}<input id="dq" type="search" autocomplete="off" placeholder="ابحث في الجدول" value="${esc(ui.debtQ)}"></div>
     ${list || '<div class="card center tag">لا توجد ديون حالياً</div>'}</div>`;
-  return page({ title: 'جدول الديون', body, nav: 'debts', extra: `<span class="sp"></span><span class="tag">المجموع</span><span class="num owe">${fmt(total)}</span>` });
+  return page({ title: 'جدول الديون', body, sub, nav: 'debts', extra: `<span class="sp"></span><span class="tag">المجموع</span><span class="num owe">${fmt(total)}</span>` });
 }
 
 function viewReports() {
@@ -195,13 +200,13 @@ function viewReports() {
   const top = debtTable(s, now, 'debt').slice(0, 5);
   const max = top[0] ? top[0].customer.balance : 1;
   const late = debtTable(s, now, 'overdue30');
+  const sub = `<div class="stat herostat"><div class="card"><div class="tag">إجمالي الديون</div><div class="num owe" style="font-size:24px">${fmt(a.totalOutstanding)}</div><div class="tag">${a.customersWithDebt} عميل</div></div>
+      <div class="card"><div class="tag">المسدد هذا الشهر</div><div class="num" style="font-size:24px;color:var(--pay)">${fmt(a.collectedMonth)}</div><div class="tag">شراء جديد ${fmt(a.newDebtMonth)}</div></div></div>`;
   const body = `<div class="body">
-    <div class="stat"><div class="card"><div class="tag">إجمالي الديون</div><div class="num owe" style="font-size:22px">${fmt(a.totalOutstanding)}</div><div class="tag">${a.customersWithDebt} عميل</div></div>
-      <div class="card"><div class="tag">المسدد هذا الشهر</div><div class="num" style="font-size:22px;color:var(--pay)">${fmt(a.collectedMonth)}</div><div class="tag">شراء جديد ${fmt(a.newDebtMonth)}</div></div></div>
     <div class="card stack"><b>أكبر المدينين</b>${top.length ? top.map((r) => `<div><div class="row"><span>${esc(r.customer.name)}</span><span class="num">${fmt(r.customer.balance)}</span></div><div class="bar"><i style="width:${Math.max(4, Math.round(r.customer.balance / max * 100))}%"></i></div></div>`).join('') : '<div class="tag">لا ديون</div>'}</div>
     <div class="card stack"><div class="row"><b>المتأخرون</b><span class="pill">أكثر من 30 يوماً</span></div>
       ${late.length ? late.map((r) => `<div class="row"><span>${esc(r.customer.name)}</span><span class="num owe">${fmt(r.customer.balance)}</span></div>`).join('') : '<div class="tag">لا يوجد متأخرون</div>'}</div></div>`;
-  return page({ title: 'التقارير', body, nav: 'reports' });
+  return page({ title: 'التقارير', body, sub, nav: 'reports' });
 }
 
 const tgl = (act, on) => `<button class="tg" role="switch" aria-checked="${on}" data-act="${act}"><i></i></button>`;
@@ -242,11 +247,11 @@ function viewEvents() {
     return `<div class="card stack"><div class="row"><b>${e.archived ? 'أرشفة' : 'إلغاء أرشفة'} ${name(e.cid)}</b><span class="pill">أرشفة</span></div><div class="tag">${fullFmt.format(e.ts)}</div></div>`;
   }).join('');
   const body = `<div class="body">${list || '<div class="card center tag">لا توجد أحداث بعد</div>'}</div>`;
-  return page({ title: 'الأحداث', back: '#/settings', body });
+  return page({ title: 'الأحداث', back: '#/settings', nav: 'settings', body });
 }
 
 function viewMissing() {
-  return page({ title: 'غير موجود', back: '#/home', body: '<div class="body"><div class="card center">لم نجد هذا العميل</div></div>' });
+  return page({ title: 'غير موجود', back: '#/home', nav: '-', body: '<div class="body"><div class="card center">لم نجد هذا العميل</div></div>' });
 }
 
 function viewLock() {
@@ -604,6 +609,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
+  if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }
   if (t.id === 'dq') { ui.debtQ = t.value; const pos = t.selectionStart; render(); const n = /** @type {HTMLInputElement | null} */ (document.getElementById('dq')); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
 });
