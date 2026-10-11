@@ -77,7 +77,7 @@ async function afterSaveWa(cid, tid) {
   if (!c || !c.phone || c.waOff) return;
   let auto = false;
   if (cfg.auto && meta.syncOn) { await refreshBridge(); auto = bridge.alive; }
-  if (!auto) { if (cfg.on) window.setTimeout(() => waSheet(cid, tid), 150); return; }
+  if (!auto) { if (cfg.on) window.setTimeout(() => waSheet(cid, tid), 1600); return; } // بعد أن تختفي بطاقة «تم الحفظ»
   schedSync(100);
   for (let i = 0; i < 10; i++) {
     await new Promise((r) => setTimeout(r, 4000));
@@ -86,12 +86,12 @@ async function afterSaveWa(cid, tid) {
     if (it && it.status === 'sent') { bigToast('#128c4a', '#fff', 'chat', 'أُرسلت الرسالة للعميل ✓', `${c.name} · واتساب`, 2400); return; }
     if (it && it.status === 'failed') break;
   }
-  if (cfg.on) { bigToast('var(--pay)', 'var(--pay-ink)', 'clock', 'تعذّر الإرسال التلقائي', 'اضغط «فتح واتساب» لإرسالها بنفسك', 2600); waSheet(cid, tid); } else bigToast('var(--pay)', 'var(--pay-ink)', 'clock', 'لم تُرسل الرسالة', 'تعذّر الإرسال التلقائي للعميل', 2600);
+  if (cfg.on) { bigToast('var(--pay)', 'var(--pay-ink)', 'clock', 'تعذّر الإرسال التلقائي', 'اضغط «فتح واتساب» لإرسالها بنفسك', 2200); window.setTimeout(() => waSheet(cid, tid), 2300); } else bigToast('var(--pay)', 'var(--pay-ink)', 'clock', 'لم تُرسل الرسالة', 'تعذّر الإرسال التلقائي للعميل', 2600);
 }
 
 // رسالة تطمين بعد حفظ العملية: وسط الشاشة بلون العملية وتختفي وحدها
 /** بطاقة تطمين كبيرة وسط الشاشة: دائرة أيقونة + عنوان كبير + سطر تفصيل، وتختفي وحدها */
-function bigToast(bg, fg, icon, title, line, ms = 1800) {
+function bigToast(bg, fg, icon, title, line, ms = 1500) {
   document.querySelector('.savedtoast')?.remove();
   const el = document.createElement('div');
   el.className = 'savedtoast';
