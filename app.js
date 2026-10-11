@@ -83,21 +83,27 @@ async function afterSaveWa(cid, tid) {
     await new Promise((r) => setTimeout(r, 4000));
     const st = await notifyStatus(SYNC_URL, meta.syncKey, (u, x) => fetch(u, x));
     const it = st && st.items.find((/** @type {any} */ x) => x.op === tid);
-    if (it && it.status === 'sent') { toast('✓ أُرسلت الرسالة للعميل'); return; }
+    if (it && it.status === 'sent') { bigToast('#128c4a', '#fff', 'chat', 'أُرسلت الرسالة للعميل ✓', `${c.name} · واتساب`, 2400); return; }
     if (it && it.status === 'failed') break;
   }
-  if (cfg.on) { toast('تعذّر الإرسال التلقائي، أرسلها يدوياً'); waSheet(cid, tid); } else toast('لم تُرسل الرسالة التلقائية للعميل');
+  if (cfg.on) { bigToast('var(--pay)', 'var(--pay-ink)', 'clock', 'تعذّر الإرسال التلقائي', 'اضغط «فتح واتساب» لإرسالها بنفسك', 2600); waSheet(cid, tid); } else bigToast('var(--pay)', 'var(--pay-ink)', 'clock', 'لم تُرسل الرسالة', 'تعذّر الإرسال التلقائي للعميل', 2600);
 }
 
 // رسالة تطمين بعد حفظ العملية: وسط الشاشة بلون العملية وتختفي وحدها
-function savedToast(kind, line) {
+/** بطاقة تطمين كبيرة وسط الشاشة: دائرة أيقونة + عنوان كبير + سطر تفصيل، وتختفي وحدها */
+function bigToast(bg, fg, icon, title, line, ms = 1800) {
   document.querySelector('.savedtoast')?.remove();
-  const v = { purchase: 'buy', payment: 'pay', return: 'ret' }[kind] || 'buy';
   const el = document.createElement('div');
   el.className = 'savedtoast';
-  el.innerHTML = `<div style="background:var(--${v});color:var(--${v}-ink)"><b>تم حفظ العملية ✓</b><span>${esc(line)}</span></div>`;
+  el.innerHTML = `<div style="background:${bg};color:${fg}"><i>${ic(icon)}</i><b>${esc(title)}</b><span>${esc(line)}</span></div>`;
+  el.querySelector('i').style.setProperty('--ic', fg);
   $app.appendChild(el);
-  window.setTimeout(() => el.remove(), 1500);
+  window.setTimeout(() => el.remove(), ms);
+}
+// بعد حفظ العملية: بلون العملية
+function savedToast(kind, line) {
+  const v = { purchase: 'buy', payment: 'pay', return: 'ret' }[kind] || 'buy';
+  bigToast(`var(--${v})`, `var(--${v}-ink)`, 'check', `تم حفظ ${KIND[kind] || 'العملية'}`, line);
 }
 let toastTimer = 0;
 function toast(msg, ms = 2800) {
