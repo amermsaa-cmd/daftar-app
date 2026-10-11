@@ -643,7 +643,18 @@ async function boot() {
   for (const id of ledger.opIds()) saved.add(id);
   applyTheme();
   db.requestPersistence();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+    }).catch(() => {});
+    // إصدار جديد جاهز: نعيد التحميل بصمت لو ما فيه كتابة جارية، وإلا ننبّه
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController) return;
+      if (!ui.rec || !ui.rec.amt) location.reload();
+      else toast('يوجد تحديث جديد. أعد فتح التطبيق بعد إنهاء العملية.', 6000);
+    });
+  }
   locked = meta.lockEnabled && !!meta.credId;
   if (!location.hash) location.hash = '#/home';
   render();

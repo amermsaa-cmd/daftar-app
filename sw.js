@@ -1,23 +1,22 @@
 // خدمة العمل بدون إنترنت: تحفظ ملفات التطبيق عند أول فتح، وبعدها يشتغل التطبيق كاملاً بلا نت.
-// قائمة الملفات والإصدار يكتبهما build.mjs في precache.json.
-let cacheName = 'daftar-dev';
+// BUILD يكتبه build.mjs في كل بناء، فيتغيّر هذا الملف مع كل إصدار ويتحدّث التطبيق على الجوال.
+const BUILD = '1245bf4ee2';
+const CACHE = `daftar-${BUILD}`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    const res = await fetch('precache.json', { cache: 'no-store' });
-    const { version, files } = await res.json();
-    cacheName = `daftar-${version}`;
-    const cache = await caches.open(cacheName);
-    await cache.addAll(files);
+    const res = await fetch('precache.json', { cache: 'reload' });
+    const { files } = await res.json();
+    const cache = await caches.open(CACHE);
+    // cache: 'reload' حتى لا تأتي ملفات قديمة من ذاكرة المتصفح المؤقتة
+    await Promise.all(files.map((f) => cache.add(new Request(f, { cache: 'reload' }))));
     await self.skipWaiting();
   })());
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    const res = await fetch('precache.json', { cache: 'no-store' }).catch(() => null);
-    if (res && res.ok) cacheName = `daftar-${(await res.json()).version}`;
-    for (const k of await caches.keys()) if (k.startsWith('daftar-') && k !== cacheName) await caches.delete(k);
+    for (const k of await caches.keys()) if (k.startsWith('daftar-') && k !== CACHE) await caches.delete(k);
     await self.clients.claim();
   })());
 });
