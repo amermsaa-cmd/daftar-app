@@ -155,7 +155,7 @@ button.card{font:inherit;color:inherit}
 .card.row .pill{font-size:12.5px;padding:3px 11px}
 .row .num small{font-size:12.5px}
 .savedtoast{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;pointer-events:none}
-.savedtoast>div{border-radius:22px;padding:26px 32px;text-align:center;box-shadow:0 14px 40px rgba(0,0,0,.5);min-width:250px;max-width:86%}
+.savedtoast>div{transform:translateY(-60px);border-radius:22px;padding:26px 32px;text-align:center;box-shadow:0 14px 40px rgba(0,0,0,.5);min-width:250px;max-width:86%}
 .savedtoast i{display:flex;align-items:center;justify-content:center;width:68px;height:68px;border-radius:50%;background:rgba(255,255,255,.22);margin:0 auto 12px}
 .savedtoast i .ic{width:38px;height:38px;stroke-width:2.6}
 .savedtoast b{display:block;font-size:22px;font-weight:800}
