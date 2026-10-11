@@ -45,6 +45,7 @@ function balHtml(c) {
 
 // ===== واتساب: اليدوي والاحتياط للتلقائي =====
 // الإعدادات تُحفظ كعمليات في الدفتر (تتزامن بين الجوالات والجسر): wa.on / wa.auto / wa.shop / wa.bal / wa.last
+let waShopTimer = 0;
 const waCfg = () => waSettings(ledger.state.settings);
 async function setWa(key, value) { ledger.setSetting(key, value); await flush(); render(); }
 /** نص الرسالة للعميل (بدون اسمه): الرصيد وآخر عملية واسم البقالة حسب الإعدادات */
@@ -854,6 +855,10 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
+  if (t.id === 'waShopIn') { // حفظ تلقائي أثناء الكتابة (بعد توقف نصف ثانية)
+    clearTimeout(waShopTimer);
+    waShopTimer = window.setTimeout(() => { const v = t.value.trim(); if (v !== waCfg().shop) { ledger.setSetting('wa.shop', v); flush(); } }, 600);
+  }
   if (t.id === 'waText') { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }
