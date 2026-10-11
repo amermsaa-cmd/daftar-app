@@ -55,7 +55,7 @@ function waNumber(phone) {
 /** نص الرسالة للعميل: الرصيد الحالي وآخر عملية (اختياري) واسم البقالة */
 function waMessage(cid) {
   const c = ledger.customer(cid);
-  const lines = [`السلام عليكم ${c.name}`];
+  const lines = ['السلام عليكم'];
   if (meta.waBal) lines.push(c.balance > 0 ? `رصيدك الحالي: ${fmt(c.balance)} ر.س` : c.balance < 0 ? `لك عندنا: ${fmt(-c.balance)} ر.س` : 'حسابك مسدّد، لا يوجد مبلغ مستحق');
   if (meta.waLast) {
     const s = ledger.state;
@@ -75,15 +75,14 @@ function waSheet(cid) {
 }
 
 // رسالة تطمين بعد حفظ العملية: وسط الشاشة بلون العملية وتختفي وحدها
-function savedToast(kind, line, cid = '') {
+function savedToast(kind, line) {
   document.querySelector('.savedtoast')?.remove();
   const v = { purchase: 'buy', payment: 'pay', return: 'ret' }[kind] || 'buy';
   const el = document.createElement('div');
   el.className = 'savedtoast';
-  const wa = cid && meta.waOn && ledger.customer(cid)?.phone;
-  el.innerHTML = `<div style="background:var(--${v});color:var(--${v}-ink)"><b>تم حفظ العملية ✓</b><span>${esc(line)}</span>${wa ? `<button class="watoast" data-act="wa-open" data-cid="${cid}">${ic('chat')}واتساب</button>` : ''}</div>`;
+  el.innerHTML = `<div style="background:var(--${v});color:var(--${v}-ink)"><b>تم حفظ العملية ✓</b><span>${esc(line)}</span></div>`;
   $app.appendChild(el);
-  window.setTimeout(() => el.remove(), wa ? 4000 : 1500);
+  window.setTimeout(() => el.remove(), 1500);
 }
 let toastTimer = 0;
 function toast(msg, ms = 2800) {
@@ -330,7 +329,7 @@ function waCardHtml() {
       <input id="waShopIn" class="keyin" style="text-align:start" autocomplete="off" placeholder="مثال: بقالة الأمل" value="${esc(meta.waShop)}">
       <div class="sw"><span>تضمين الرصيد</span>${tgl('toggle-wa-bal', meta.waBal)}</div>
       <div class="sw"><span>تضمين آخر عملية</span>${tgl('toggle-wa-last', meta.waLast)}</div>
-      <div class="tag">يظهر الزر في حساب العميل وبعد حفظ العملية، لعميل له رقم جوال فقط. الرسالة تُرسل منك داخل واتساب.</div></div>`
+      <div class="tag">بعد حفظ كل عملية تظهر رسالة العميل مباشرة (وتتجاوزها بـ «إلغاء»)، ويبقى الزر في حساب العميل. لعميل له رقم جوال فقط، والرسالة تُرسل منك داخل واتساب.</div></div>`
     : `<div class="tag">مطفأة افتراضياً. لا يظهر الزر إلا لعميل له رقم جوال.</div>`;
   return `<div class="card stack"><div class="sw"><div><b>أزرار الواتساب</b><div class="tag">إرسال رصيد العميل برسالة جاهزة</div></div>${tgl('toggle-wa', meta.waOn)}</div>${inner}</div>`;
 }
@@ -480,9 +479,12 @@ async function saveRecord() {
     const res = ledger[fn](r.cid, amount);
     await flush();
     const c = ledger.customer(r.cid);
-    savedToast(r.kind, `${KIND[r.kind]} ${fmt(amount)} · ${c.name}`, r.cid);
+    savedToast(r.kind, `${KIND[r.kind]} ${fmt(amount)} · ${c.name}`);
+    const waCid = meta.waOn && c.phone ? r.cid : '';
     ui.rec = null;
     location.hash = '#/home';
+    // بعد الحفظ تظهر رسالة العميل مباشرة (يتجاوزها الموظف بـ «إلغاء»)
+    if (waCid) window.setTimeout(() => waSheet(waCid), 150);
   } catch (e) {
     toast(e instanceof LedgerError ? (ERR[e.code] || e.code) : 'تعذّر الحفظ');
   }
