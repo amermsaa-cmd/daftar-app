@@ -893,8 +893,10 @@ document.addEventListener('input', (e) => {
 });
 
 // صف الأرقام: يظهر مع التركيز على خانة البحث، والضغط عليه لا يُغلق الكيبورد
-document.addEventListener('focusin', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') document.getElementById('numpad')?.classList.add('on'); });
-document.addEventListener('focusout', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') document.getElementById('numpad')?.classList.remove('on'); });
+// الإخفاء متأخر قليلاً: لو اختفى الصف فوراً عند أول لمسة لنتيجة البحث، ينزاح السطر وتضيع اللمسة (تحتاج ضغطتين)
+let npTimer = 0;
+document.addEventListener('focusin', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') { clearTimeout(npTimer); document.getElementById('numpad')?.classList.add('on'); } });
+document.addEventListener('focusout', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') { clearTimeout(npTimer); npTimer = window.setTimeout(() => document.getElementById('numpad')?.classList.remove('on'), 450); } });
 document.addEventListener('pointerdown', (e) => { if (/** @type {HTMLElement} */ (e.target).closest?.('#numpad')) e.preventDefault(); });
 
 document.addEventListener('submit', (e) => {
