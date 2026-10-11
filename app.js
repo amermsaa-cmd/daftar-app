@@ -228,7 +228,7 @@ function viewSettings() {
   const sub = `<div class="addhero"><button type="button" class="addtoggle" data-act="toggle-add" aria-expanded="${open}"><span>${ic('user-plus')}إضافة عميل جديد</span>${ic('back')}</button>
     ${open ? `<form id="addForm" class="addform" autocomplete="off">
     <input id="f-name" required placeholder="اسم العميل" aria-label="اسم العميل">
-    <div class="two-in"><div class="input-row"><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" placeholder="رقم الهاتف" aria-label="رقم الهاتف">${hasContacts ? `<button type="button" class="addbtn" data-act="pick-contact" aria-label="من جهات الاتصال">${ic('contacts')}</button>` : ''}</div>
+    <div class="two-in"><div class="phonebox"><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" placeholder="رقم الهاتف" aria-label="رقم الهاتف">${hasContacts ? `<button type="button" class="inbtn" data-act="pick-contact" aria-label="من جهات الاتصال">${ic('contacts')}</button>` : ''}</div>
     <input id="f-open" inputmode="decimal" dir="ltr" style="text-align:right" placeholder="الرصيد السابق" aria-label="الرصيد السابق"></div>
     <div id="formErr"></div>
     <button class="save" type="submit">حفظ العميل</button></form>` : ''}</div>`;
