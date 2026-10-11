@@ -187,3 +187,8 @@ button.card{font:inherit;color:inherit}
 .phonebox input{padding-left:46px}
 .inbtn{position:absolute;left:6px;top:50%;transform:translateY(-50%);width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:transparent;border:0;padding:0;cursor:pointer}
 .inbtn .ic{width:22px;height:22px}
+
+.keyin{background:var(--field);border:1px solid var(--line);border-radius:10px;padding:12px;color:var(--txt);font:inherit;width:100%;text-align:left}
+.syncst{font-weight:700;font-size:13px;text-align:end}
+.syncst.warn{color:var(--pay)}
+.syncst.bad{color:var(--danger)}

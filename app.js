@@ -7,17 +7,18 @@ import {
 import * as db from './db.js';
 import * as lock from './lock.js';
 import { scanSupported, scanOnce } from './scan.js';
+import { SyncClient, verifyKey, SYNC_URL } from './sync.js';
 
 const VERSION = '0.2.0';
 const RELOCK_MS = 5 * 60 * 1000;
 
 /** @type {Ledger} */
 let ledger;
-const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: false, ownerPin: null, theme: 'auto', lastBackupAt: 0 };
+const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: false, ownerPin: null, theme: 'auto', lastBackupAt: 0, syncOn: false, syncKey: '', syncCursor: 0, syncLastAt: 0, syncPushed: /** @type {Set<string>} */ (new Set()) };
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '' };
+const ui = { syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '' };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -74,6 +75,46 @@ async function flush() {
   const fresh = ledger.allOps().filter((op) => !saved.has(op.id));
   await db.putOps(fresh);
   for (const op of fresh) saved.add(op.id);
+  if (fresh.length) schedSync();
+}
+
+// ===== المزامنة مع السيرفر =====
+const syncStore = {
+  getCursor: () => meta.syncCursor,
+  setCursor: async (/** @type {number} */ n) => { meta.syncCursor = n; await db.setMeta('syncCursor', n); },
+  getPushed: () => meta.syncPushed,
+  addPushed: async (/** @type {string[]} */ ids) => { for (const id of ids) meta.syncPushed.add(id); await db.setMeta('syncPushed', [...meta.syncPushed]); },
+};
+/** @type {SyncClient | null} */
+let syncClient = null;
+let syncTimer = 0;
+
+function startSync() {
+  syncClient = null;
+  if (!meta.syncOn || !meta.syncKey) return;
+  syncClient = new SyncClient({
+    baseUrl: SYNC_URL, key: meta.syncKey, ledger, store: syncStore,
+    fetchFn: (u, i) => fetch(u, i),
+    onPulled: async () => {
+      await flush();
+      // لا نعيد رسم الشاشة والمستخدم يكتب في خانة، حتى لا يضيع ما كتبه
+      const a = document.activeElement;
+      if (!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'))) render();
+    },
+  });
+}
+
+async function runSync() {
+  if (!syncClient || locked) return;
+  const st = await syncClient.sync();
+  if (st === 'idle') { meta.syncLastAt = syncClient.lastSyncAt; await db.setMeta('syncLastAt', meta.syncLastAt); }
+  if (location.hash.startsWith('#/settings') && !ui.syncSetup) render();
+  return st;
+}
+
+function schedSync(delay = 1500) {
+  clearTimeout(syncTimer);
+  if (syncClient) syncTimer = window.setTimeout(runSync, delay);
 }
 
 // ===== هيكل الصفحة =====
@@ -220,6 +261,37 @@ function viewReports() {
 
 const tgl = (act, on) => `<button class="tg" role="switch" aria-checked="${on}" data-act="${act}"><i></i></button>`;
 
+const SYNC_MSG = {
+  syncing: ['جارٍ المزامنة...', ''],
+  offline: ['لا يوجد إنترنت: ستُرسل العمليات عند عودته', 'warn'],
+  unauthorized: ['المفتاح غير صالح. اطلب مفتاحاً جديداً من إدارة الخدمة', 'bad'],
+  disabled: ['الخدمة موقوفة لهذه البقالة', 'bad'],
+  error: ['تعذّر الاتصال بالسيرفر، سنحاول لاحقاً', 'warn'],
+};
+
+function syncCardHtml() {
+  const open = meta.syncOn || ui.syncSetup;
+  let inner = `<div class="tag">مطفأة افتراضياً. يبقى التطبيق يعمل كاملاً بدونها.</div>`;
+  if (ui.syncSetup && !meta.syncOn) {
+    inner = `<div class="stack"><input id="syncKeyInput" class="keyin" dir="ltr" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="مفتاح البقالة">
+      <div class="tag">الصق المفتاح الذي استلمته من إدارة الخدمة.</div>
+      <button class="btn main" data-act="sync-link">ربط</button></div>`;
+  } else if (meta.syncOn) {
+    const st = syncClient ? syncClient.state : 'idle';
+    const m = SYNC_MSG[st];
+    const last = (syncClient && syncClient.lastSyncAt) || meta.syncLastAt;
+    const pending = syncClient ? syncClient.pending() : 0;
+    inner = `<div class="stack">
+      <div class="row"><span class="tag">الحالة</span>${m ? `<span class="syncst ${m[1]}">${m[0]}</span>` : '<span class="pos" style="font-weight:700">متصل ✓</span>'}</div>
+      <div class="row"><span class="tag">آخر مزامنة</span><span>${last ? fullFmt.format(last) : 'لم تتم بعد'}</span></div>
+      <div class="row"><span class="tag">بانتظار الإرسال</span><span class="num">${pending} عملية</span></div>
+      <button class="btn" data-act="sync-now">${ic('save')}مزامنة الآن</button>
+      <div class="tag">عند انقطاع الإنترنت تُحفظ العمليات في الجوال وتُرسل عند عودته.</div></div>`;
+  }
+  return `<div class="card stack"><div class="sw"><div><b>المزامنة مع السيرفر</b><div class="tag">نسخة احتياطية تلقائية، وتزامن بين الجوالات</div></div>${tgl('toggle-sync', open)}</div>${inner}</div>
+    <div class="card stack" style="opacity:.55"><div class="row"><span>نسخة Google Drive</span>${ic('lock')}</div><div class="tag">قريباً: يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة.</div></div>`;
+}
+
 function viewSettings() {
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
@@ -238,6 +310,7 @@ function viewSettings() {
     <div class="card stack"><div class="sw"><div><b>رمز صاحب البقالة</b><div class="tag">اطلب رمزاً لعكس العمليات وتعديل العملاء</div></div>${tgl('toggle-owner', meta.ownerRequired)}</div>
       <div class="tag">مطفأ افتراضياً. كل عكس أو تعديل يُسجَّل في الأحداث حتى لو كان الرمز مطفأً. احفظ الرمز جيداً.</div></div>
     <a class="card stack" href="#/events" style="text-decoration:none;color:inherit"><div class="row"><b>الأحداث</b>${ic('clock')}</div><div class="tag">${evCount ? evCount + ' حدث (عكس وتعديل وأرشفة)' : 'لا توجد أحداث بعد'}</div></a>
+    ${syncCardHtml()}
     <div class="card stack"><b>النسخة الاحتياطية</b>
       <div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
       <input id="restoreFile" type="file" accept=".json,application/json" hidden>
@@ -598,6 +671,44 @@ const ACTS = {
   backup: () => backup(),
   restore: () => document.getElementById('restoreFile')?.click(),
   'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
+  'toggle-sync': async () => {
+    if (meta.syncOn) {
+      meta.syncOn = false; await db.setMeta('syncOn', false); syncClient = null; clearTimeout(syncTimer);
+    } else if (meta.syncKey && !ui.syncSetup) {
+      meta.syncOn = true; await db.setMeta('syncOn', true); startSync(); schedSync(100);
+    } else ui.syncSetup = !ui.syncSetup;
+    render();
+  },
+  'sync-link': async () => {
+    const key = toLatin(/** @type {HTMLInputElement} */ (document.getElementById('syncKeyInput'))?.value || '').trim();
+    if (!key) { toast('الصق مفتاح البقالة أولاً'); return; }
+    const r = await verifyKey(SYNC_URL, key, (u, i) => fetch(u, i));
+    if (r !== 'ok') { toast({ unauthorized: 'المفتاح غير صحيح', disabled: 'الخدمة موقوفة لهذه البقالة', offline: 'لا يوجد إنترنت الآن', error: 'تعذّر الاتصال بالسيرفر' }[r], 3500); return; }
+    ui.syncKeyPending = key;
+    sheet(`<div class="banner" style="font-size:16px;line-height:1.8;padding:16px 12px;font-weight:600">سيتم ربط هذا الجوال ببقالتك ودمج دفتره مع الدفتر الموجود على السيرفر. لا يُحذف شيء.</div>
+      <div class="two"><button data-act="close-ov">رجوع</button><button class="go" data-act="sync-confirm">ربط</button></div>`, '', true);
+  },
+  'close-ov': () => { ui.syncKeyPending = ''; closeOv(); },
+  'sync-confirm': async () => {
+    const key = ui.syncKeyPending; ui.syncKeyPending = '';
+    closeOv();
+    if (!key) return;
+    Object.assign(meta, { syncKey: key, syncOn: true, syncCursor: 0, syncLastAt: 0, syncPushed: new Set() });
+    await db.setMeta('syncKey', key); await db.setMeta('syncOn', true); await db.setMeta('syncCursor', 0);
+    await db.setMeta('syncLastAt', 0); await db.setMeta('syncPushed', []);
+    ui.syncSetup = false;
+    startSync(); render();
+    const st = await runSync();
+    toast(st === 'idle' ? '✓ تم الربط والمزامنة' : 'تم الربط. ستكتمل المزامنة عند توفر الاتصال', 3500);
+    render();
+  },
+  'sync-now': async () => {
+    if (!syncClient) return;
+    toast('جارٍ المزامنة...', 1200);
+    const st = await runSync();
+    toast(st === 'idle' ? '✓ تمت المزامنة' : SYNC_MSG[st || 'error'][0], 3500);
+    render();
+  },
   'pick-contact': () => pickContact(),
   redo: async (el) => {
     const ev = eventsLog(ledger.allOps()).find((e) => e.id === el.dataset.id);
@@ -648,6 +759,7 @@ window.addEventListener('hashchange', () => { closeOv(); render(); });
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { hiddenAt = Date.now(); return; }
+  schedSync(500);
   if (meta.lockEnabled && !locked && hiddenAt && Date.now() - hiddenAt > RELOCK_MS) { locked = true; render(); }
 });
 
@@ -663,6 +775,11 @@ async function boot() {
   meta.ownerPin = await db.getMeta('ownerPin');
   meta.theme = await db.getMeta('theme', 'auto');
   meta.lastBackupAt = await db.getMeta('lastBackupAt', 0);
+  meta.syncOn = await db.getMeta('syncOn', false);
+  meta.syncKey = await db.getMeta('syncKey', '');
+  meta.syncCursor = await db.getMeta('syncCursor', 0);
+  meta.syncLastAt = await db.getMeta('syncLastAt', 0);
+  meta.syncPushed = new Set(await db.getMeta('syncPushed', []));
   ledger = new Ledger({ deviceId, ops });
   for (const id of ledger.opIds()) saved.add(id);
   applyTheme();
@@ -681,8 +798,11 @@ async function boot() {
   }
   locked = meta.lockEnabled && !!meta.credId;
   if (!location.hash) location.hash = '#/home';
+  startSync();
   render();
-  if (locked) tryUnlock();
+  if (locked) tryUnlock(); else schedSync(800);
+  window.addEventListener('online', () => schedSync(300));
+  window.setInterval(() => { if (!document.hidden) schedSync(0); }, 60000);
 }
 
 boot().catch((err) => {
