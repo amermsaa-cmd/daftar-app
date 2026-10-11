@@ -9,4 +9,4 @@ export {
 } from './reports.js';
 export { opsFromLegacy } from './legacy.js';
 export { eventsLog } from './events.js';
-export { waNumber, waSettings, waMessage, waSkipReason, waStamp } from './notify.js';
+export { waNumber, waSettings, shopInfo, waMessage, waSkipReason, waStamp } from './notify.js';

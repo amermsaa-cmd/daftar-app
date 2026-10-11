@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, waMessage as coreWaMessage,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waMessage as coreWaMessage,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -46,6 +46,13 @@ function balHtml(c) {
 // ===== واتساب: اليدوي والاحتياط للتلقائي =====
 // الإعدادات تُحفظ كعمليات في الدفتر (تتزامن بين الجوالات والجسر): wa.on / wa.auto / wa.shop / wa.bal / wa.last
 let waShopTimer = 0;
+/** @param {HTMLInputElement} t */
+function saveShop(t) {
+  const key = t.id === 'shopNameIn' ? 'shop.name' : 'shop.phone';
+  const v = toLatin(t.value.trim());
+  const cur = shopInfo(ledger.state.settings);
+  if (v !== (key === 'shop.name' ? cur.name : cur.phone)) { ledger.setSetting(key, key === 'shop.name' ? t.value.trim() : v); flush(); }
+}
 const waCfg = () => waSettings(ledger.state.settings);
 async function setWa(key, value) { ledger.setSetting(key, value); await flush(); render(); }
 /** نص الرسالة للعميل (بدون اسمه): الرصيد وآخر عملية واسم البقالة حسب الإعدادات */
@@ -369,13 +376,23 @@ function waCardHtml() {
   const inner = `<div class="stack">
       <div class="sw"><span>الإرسال التلقائي بعد كل عملية (يحتاج الجسر)</span>${tgl('toggle-wa-auto', w.auto)}</div>
       <div class="sw"><span>أزرار الواتساب اليدوية (احتياط)</span>${tgl('toggle-wa', w.on)}</div>
-      <label class="tag" for="waShopIn">اسم البقالة في آخر الرسالة</label>
-      <input id="waShopIn" class="keyin" style="text-align:start" autocomplete="off" placeholder="مثال: بقالة الأمل" value="${esc(w.shop)}">
       <div class="sw"><span>تضمين الرصيد</span>${tgl('toggle-wa-bal', w.bal)}</div>
       <div class="sw"><span>تضمين آخر عملية</span>${tgl('toggle-wa-last', w.last)}</div>
       <div class="tag">${meta.syncOn ? (bridge.alive ? 'الجسر شغّال ✓' : 'الجسر غير متصل الآن: تُستعمل الأزرار اليدوية') : 'يحتاج تفعيل المزامنة مع السيرفر'}</div>
       <div class="tag">لإيقاف الإشعار لعميل معيّن: تعديل بيانات العميل.</div></div>`;
   return acc('wa', 'chat', 'رسائل الواتساب', w.auto ? 'تلقائي' : w.on ? 'يدوي' : 'مطفأة', inner);
+}
+
+function shopCardHtml() {
+  const sh = shopInfo(ledger.state.settings);
+  const inner = `<div class="stack">
+      <label class="tag" for="shopNameIn">اسم البقالة</label>
+      <input id="shopNameIn" class="keyin" style="text-align:start" autocomplete="off" placeholder="مثال: بقالة الأمل" value="${esc(sh.name)}">
+      <div class="tag">يظهر في أول سطر من رسالة الواتساب للعميل.</div>
+      <label class="tag" for="shopPhoneIn">رقم هاتف البقالة</label>
+      <input id="shopPhoneIn" class="keyin" type="tel" inputmode="tel" dir="ltr" style="text-align:right" autocomplete="off" placeholder="05xxxxxxxx" value="${esc(sh.phone)}">
+      <div class="tag">يظهر في كشف الحساب المطبوع فقط.</div></div>`;
+  return acc('shop', 'home', 'بيانات البقالة', sh.name ? esc(sh.name) : 'لم يُدخل بعد', inner);
 }
 
 function viewSettings() {
@@ -391,6 +408,7 @@ function viewSettings() {
     <div id="formErr"></div>
     <button class="save" type="submit">حفظ العميل</button></form>` : ''}</div>`;
   const body = `<div class="body">
+    ${shopCardHtml()}
     ${acc('lock', 'finger', 'قفل التطبيق', meta.lockEnabled ? 'مفعّل' : 'مطفأ', `<div class="sw"><span>بصمة الجوال أو رمز فتحه نفسه</span>${tgl('toggle-lock', meta.lockEnabled)}</div>
       <div class="tag">مطفأ افتراضياً، فيفتح التطبيق مباشرة. صاحب الجوال يفعّله أو يعطّله متى شاء.</div>`)}
     ${acc('owner', 'lock', 'رمز صاحب البقالة', meta.ownerRequired ? 'مفعّل' : 'مطفأ', `<div class="sw"><span>اطلب رمزاً لعكس العمليات وتعديل العملاء</span>${tgl('toggle-owner', meta.ownerRequired)}</div>
@@ -598,7 +616,8 @@ function printStatement(cid) {
   const st = statement(s, cid);
   const rows = st.days.map((d) => `<tr><th colspan="4">${dayFmt.format(d.date)}</th></tr>` +
     d.rows.map(({ txn: t, after }) => `<tr><td>${KIND[t.kind]}</td><td>${timeFmt.format(t.ts)}</td><td dir="ltr">${signed(t)}</td><td dir="ltr">${fmt(after)}</td></tr>`).join('')).join('');
-  document.getElementById('printArea').innerHTML = `<h2>كشف حساب: ${esc(c.name)} (رقم ${c.codeNo})</h2>
+  const sh = shopInfo(s.settings);
+  document.getElementById('printArea').innerHTML = `${sh.name || sh.phone ? `<p><b>${esc(sh.name)}</b>${sh.phone ? ` · <span dir="ltr">${esc(sh.phone)}</span>` : ''}</p>` : ''}<h2>كشف حساب: ${esc(c.name)} (رقم ${c.codeNo})</h2>
     <p>الرصيد: ${c.balance < 0 ? 'له ' : ''}${fmt(Math.abs(c.balance))} ريال · ${dayFmt.format(Date.now())}</p>
     <table><tr><th>العملية</th><th>الوقت</th><th>المبلغ</th><th>الرصيد</th></tr>${rows}</table>`;
   window.print();
@@ -855,9 +874,9 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
-  if (t.id === 'waShopIn') { // حفظ تلقائي أثناء الكتابة (بعد توقف نصف ثانية)
+  if (t.id === 'shopNameIn' || t.id === 'shopPhoneIn') { // حفظ تلقائي أثناء الكتابة (بعد توقف نصف ثانية)
     clearTimeout(waShopTimer);
-    waShopTimer = window.setTimeout(() => { const v = t.value.trim(); if (v !== waCfg().shop) { ledger.setSetting('wa.shop', v); flush(); } }, 600);
+    waShopTimer = window.setTimeout(() => saveShop(t), 600);
   }
   if (t.id === 'waText') { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
@@ -874,7 +893,7 @@ document.addEventListener('submit', (e) => {
 
 document.addEventListener('change', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
-  if (t.id === 'waShopIn') { const v = t.value.trim(); if (v !== waCfg().shop) { ledger.setSetting('wa.shop', v); flush(); } }
+  if (t.id === 'shopNameIn' || t.id === 'shopPhoneIn') saveShop(t);
   if (t.id === 'restoreFile' && t.files && t.files[0]) { restoreFrom(t.files[0]); t.value = ''; }
 });
 

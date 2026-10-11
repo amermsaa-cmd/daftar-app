@@ -32,6 +32,17 @@ export function waNumber(phone) {
 }
 
 /**
+ * بيانات البقالة: الاسم (يظهر أول سطر في رسالة الواتساب) والهاتف (في الكشف المطبوع فقط).
+ * الاسم القديم wa.shop يبقى احتياطاً.
+ * @param {Record<string, any>} settings
+ */
+export function shopInfo(settings) {
+  const s = settings || {};
+  const str = (/** @type {any} */ v) => (typeof v === 'string' ? v : '');
+  return { name: str(s['shop.name']) || str(s['wa.shop']), phone: str(s['shop.phone']) };
+}
+
+/**
  * إعدادات الواتساب من إعدادات الدفتر (تتزامن بين الجوالات والجسر).
  * @param {Record<string, any>} settings
  */
@@ -40,7 +51,7 @@ export function waSettings(settings) {
   return {
     on: s['wa.on'] === true,            // أزرار الواتساب اليدوية في التطبيق
     auto: s['wa.auto'] !== false,       // التلقائي (الجسر): الأصل، ويُطفأ بـ false
-    shop: typeof s['wa.shop'] === 'string' ? s['wa.shop'] : '',
+    shop: shopInfo(s).name,
     bal: s['wa.bal'] === true,          // الرصيد مطفأ افتراضياً (كما في الدفتر القديم)
     last: s['wa.last'] !== false,
   };
