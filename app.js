@@ -1,7 +1,7 @@
 // تطبيق دفتر الأجل على الجوال (الوضع الأول): بدون سيرفر، كل البيانات على الجهاز.
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
-  Ledger, LedgerError, toHalalas, formatMoney, shortId, cardCode,
+  Ledger, LedgerError, toHalalas, formatMoney, shortId,
   statement, debtTable, analyticsSummary, eventsLog,
 } from './core/index.js';
 import * as db from './db.js';
@@ -68,11 +68,12 @@ async function flush() {
 // ===== هيكل الصفحة =====
 const NAV = [['home', 'home', 'الرئيسية'], ['debts', 'list', 'الديون'], ['reports', 'chart', 'التقارير'], ['settings', 'gear', 'الإعدادات']];
 
-function page({ title, back = '', body, nav = '', extra = '', style = '' }) {
+function page({ title, back = '', body, nav = '', extra = '', style = '', sub = '' }) {
   const navHtml = nav ? `<nav class="nav">${NAV.map(([r, i, l]) => `<a href="#/${r}" class="${nav === r ? 'on' : ''}">${ic(i)}${l}</a>`).join('')}</nav>` : '';
+  const top = `<div class="top">${back ? `<button class="back" data-act="back" data-to="${back}" aria-label="رجوع">${ic('back')}</button>` : ''}${title}${extra}
+      <button class="dotsbtn" data-act="menu" aria-label="القائمة">${ic('dots')}</button></div>`;
   return `<div class="pg" style="${style}">
-    <div class="top">${back ? `<button class="back" data-act="back" data-to="${back}" aria-label="رجوع">${ic('back')}</button>` : ''}${title}${extra}
-      <button class="dotsbtn" data-act="menu" aria-label="القائمة">${ic('dots')}</button></div>
+    ${sub ? `<div class="rechead">${top}${sub}</div>` : top}
     ${body}${navHtml}</div>`;
 }
 
@@ -113,18 +114,16 @@ function viewRecord(cid) {
   if (!ui.rec || ui.rec.cid !== cid) ui.rec = { cid, kind: 'purchase', amt: '' };
   const k = ui.rec.kind;
   const v = { purchase: 'buy', payment: 'pay', return: 'ret' }[k];
-  const label = { purchase: 'شراء بالأجل', payment: 'تسديد', return: 'مرتجع' }[k];
   const kinds = [['purchase', 'cart', 'شراء'], ['payment', 'pay', 'تسديد'], ['return', 'ret', 'مرتجع']]
     .map(([id, i, l]) => `<button data-act="kind" data-k="${id}" aria-pressed="${k === id}">${ic(i)}${l}</button>`).join('');
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map((x) => `<button data-act="key" data-k="${x}">${x}</button>`).join('');
+  const sub = `<a class="recinfo" href="#/customer/${c.id}"><div class="nm"><b>${esc(c.name)}</b><small>رقم ${c.codeNo} · الرصيد الحالي</small></div>${balHtml(c)}</a>
+    <div class="kinds">${kinds}</div>`;
   const body = `<div class="body" style="gap:10px">
-    <div class="kinds">${kinds}</div>
-    <a class="card row" href="#/customer/${c.id}"><div class="nm"><b>${esc(c.name)}</b><small>رقم ${c.codeNo} · الرصيد الحالي</small></div>${balHtml(c)}</a>
-    <div class="banner">${label}</div>
     <div class="big" id="amt">${esc(ui.rec.amt || '0')}</div>
     <div class="keys">${keys}</div>
     <button class="save" data-act="save">حفظ</button></div>`;
-  return page({ title: 'تسجيل عملية', back: '#/home', body, style: `--kind:var(--${v});--kind-ink:var(--${v}-ink)` });
+  return page({ title: 'تسجيل عملية', back: '#/home', sub, body, style: `--kind:var(--${v});--kind-ink:var(--${v}-ink)` });
 }
 
 function viewCustomer(cid) {
@@ -141,7 +140,7 @@ function viewCustomer(cid) {
       <div class="tag">رقم ${c.codeNo}${c.phone ? ' · ' + esc(c.phone) : ''}</div>
       <div class="big ${c.balance > 0 ? 'owe' : c.balance < 0 ? 'pos' : ''}" style="padding-bottom:0">${c.balance < 0 ? 'له ' : ''}${fmt(Math.abs(c.balance))}</div>
       <div class="tag">${ui.cust.all ? 'كل الحركات' : 'المستحق منذ آخر تصفية'}</div>
-      <div class="tag" dir="ltr">${esc(cardCode(c))}</div></div>
+</div>
     <a class="btn main" href="#/record/${c.id}">${ic('cart')}تسجيل عملية</a>
     <div class="two"><button class="btn" data-act="share" data-cid="${c.id}">${ic('share')}مشاركة</button><button class="btn" data-act="print" data-cid="${c.id}">${ic('print')}طباعة</button></div>
     <div class="two"><button class="btn" data-act="toggle-all">${ic('list')}${ui.cust.all ? 'الدورة الحالية' : 'عرض الكل'}</button><button class="btn" data-act="edit" data-cid="${c.id}">${ic('gear')}تعديل البيانات</button></div>
@@ -286,8 +285,8 @@ function render() {
 }
 
 // ===== النوافذ =====
-function sheet(html, vars = '') {
-  $ov.innerHTML = `<div class="sheet" style="${vars}"><div>${html}</div></div>`;
+function sheet(html, vars = '', centered = false) {
+  $ov.innerHTML = `<div class="sheet${centered ? ' mid' : ''}" style="${vars}"><div>${html}</div></div>`;
   return /** @type {HTMLElement} */ ($ov.firstElementChild);
 }
 const closeOv = () => { $ov.innerHTML = ''; };
@@ -532,9 +531,9 @@ const ACTS = {
     if (k === 'purchase') { ui.rec.kind = 'purchase'; render(); return; }
     const pay = k === 'payment';
     const v = pay ? 'pay' : 'ret';
-    sheet(`<div class="banner" style="font-weight:500;line-height:1.8;padding:14px 12px"><b>انتبه: أنت على وشك تسجيل ${pay ? 'تسديد' : 'مرتجع'}.</b><br>${pay ? 'التسديد ينقص من دين العميل.' : 'المرتجع ينقص من مشتريات العميل.'} للبيع بالأجل اختر شراء.</div>
+    sheet(`<div class="banner" style="font-size:19px;padding:22px 12px">أنت في وضع ${pay ? 'التسديد' : 'المرتجع'}</div>
       <div class="two"><button data-act="sheet-cancel">رجوع للشراء</button><button class="go" data-act="kind-go" data-k="${k}">متابعة</button></div>`,
-      `--kind:var(--${v});--kind-ink:var(--${v}-ink)`);
+      `--kind:var(--${v});--kind-ink:var(--${v}-ink)`, true);
   },
   'kind-go': (el) => { if (ui.rec) ui.rec.kind = /** @type {string} */ (el.dataset.k); closeOv(); render(); },
   'sheet-cancel': () => { closeOv(); if (ui.rec) ui.rec.kind = 'purchase'; render(); },
@@ -549,23 +548,8 @@ const ACTS = {
     const big = document.getElementById('amt');
     if (big) big.textContent = a || '0';
   },
-  save: () => {
-    const r = ui.rec;
-    if (!r) return;
-    const amount = toHalalas(r.amt);
-    if (!amount) { toast('أدخل مبلغاً'); return; }
-    if (r.kind === 'purchase') { saveRecord(); return; }
-    const c = ledger.customer(r.cid);
-    const pay = r.kind === 'payment';
-    const after = c.balance - amount;
-    const v = pay ? 'pay' : 'ret';
-    sheet(`<div class="center"><b>${pay ? 'تأكيد التسديد' : 'تأكيد المرتجع'}</b></div><div class="big">${esc(r.amt)}</div>
-      <div class="banner" style="font-weight:500;line-height:1.7">تنبيه: ${pay ? `سيُخصم <b>${fmt(amount)}</b> ريال من دين ${esc(c.name)}.` : `سيُرجَع <b>${fmt(amount)}</b> ريال من مشتريات ${esc(c.name)}.`}<br>الرصيد بعد العملية: <b>${after < 0 ? 'له ' : ''}${fmt(Math.abs(after))}</b> ريال. تأكد من المبلغ قبل التأكيد.</div>
-      <div class="two"><button data-act="sheet-close">إلغاء</button><button class="go" data-act="confirm-save">تأكيد</button></div>`,
-      `--kind:var(--${v});--kind-ink:var(--${v}-ink)`);
-  },
+  save: () => { saveRecord(); },
   'sheet-close': () => closeOv(),
-  'confirm-save': () => { closeOv(); saveRecord(); },
   'toggle-all': () => { ui.cust.all = !ui.cust.all; render(); },
   share: (el) => shareStatement(/** @type {string} */ (el.dataset.cid)),
   print: (el) => printStatement(/** @type {string} */ (el.dataset.cid)),

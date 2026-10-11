@@ -61,7 +61,7 @@ a.card{color:inherit;text-decoration:none;display:flex}
 .pill.ret{background:var(--ret);color:var(--ret-ink);font-weight:700}
 .pill.buy{background:var(--buy);color:var(--buy-ink);font-weight:700}
 .pill.open{background:var(--chip);color:var(--txt)}
-.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.keys{direction:ltr;display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .keys button{background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--txt);font-size:24px;font-weight:700;padding:12px 0;cursor:pointer;font-variant-numeric:tabular-nums}
 .keys button:active{background:var(--chip)}
 .keys button.blank{visibility:hidden}
@@ -72,7 +72,7 @@ a.card{color:inherit;text-decoration:none;display:flex}
 .kinds button{border:1px solid var(--line);background:var(--chip);color:var(--txt);border-radius:10px;padding:10px 4px;font-size:14px;cursor:pointer;display:flex;gap:6px;align-items:center;justify-content:center}
 .kinds button[aria-pressed=true]{color:var(--kind-ink);background:var(--kind);border-color:transparent;font-weight:700}
 .kinds button[aria-pressed=true] .ic{stroke:var(--kind-ink)}
-.save{background:var(--kind);color:var(--kind-ink);border:0;border-radius:12px;padding:14px;font-weight:700;font-size:16px;cursor:pointer}
+.save{background:var(--kind);color:var(--kind-ink);border:0;border-radius:14px;padding:0;min-height:64px;font-weight:700;font-size:19px;cursor:pointer}
 .day{color:var(--muted);font-size:12px;margin-top:4px}
 .bar{height:8px;border-radius:6px;background:var(--chip);overflow:hidden}
 .bar i{display:block;height:100%;background:var(--danger)}
@@ -114,3 +114,13 @@ a.card{color:inherit;text-decoration:none;display:flex}
 .pg{display:flex;flex-direction:column;flex:1;min-height:0}
 .row .num small{display:block;color:var(--muted);font-size:11px;font-weight:400;text-align:end}
 button.card{font:inherit;color:inherit}
+
+.rechead{background:var(--card);border-bottom:1px solid var(--line);padding-bottom:12px;flex:none}
+.rechead .top{background:transparent;border:0;font-size:19px;padding-top:calc(16px + env(safe-area-inset-top,0px));padding-bottom:8px}
+.recinfo{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 16px 12px;color:inherit;text-decoration:none}
+.recinfo b{font-size:17px}
+.recinfo small{color:var(--muted);font-size:12px;display:block}
+.recinfo .num{font-size:20px}
+.rechead .kinds{padding:0 16px}
+.sheet.mid{align-items:center;justify-content:center;padding:24px}
+.sheet.mid>div{border-radius:18px;max-width:340px;padding:18px 16px}
