@@ -17,7 +17,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '' };
+const ui = { addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '' };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -207,13 +207,12 @@ function viewReports() {
   const now = Date.now();
   const s = ledger.state;
   const a = analyticsSummary(s, now);
-  const top = debtTable(s, now, 'debt').slice(0, 5);
-  const max = top[0] ? top[0].customer.balance : 1;
+  const top = debtTable(s, now, 'debt').slice(0, 10);
   const late = debtTable(s, now, 'overdue30');
   const sub = `<div class="stat herostat"><div class="card"><div class="tag">إجمالي الديون</div><div class="num owe" style="font-size:24px">${fmt(a.totalOutstanding)}</div><div class="tag">${a.customersWithDebt} عميل</div></div>
       <div class="card"><div class="tag">المسدد هذا الشهر</div><div class="num" style="font-size:24px;color:var(--pay)">${fmt(a.collectedMonth)}</div><div class="tag">شراء جديد ${fmt(a.newDebtMonth)}</div></div></div>`;
   const body = `<div class="body">
-    <div class="card stack"><b>أكبر المدينين</b>${top.length ? top.map((r) => `<div><div class="row"><span>${esc(r.customer.name)}</span><span class="num">${fmt(r.customer.balance)}</span></div><div class="bar"><i style="width:${Math.max(4, Math.round(r.customer.balance / max * 100))}%"></i></div></div>`).join('') : '<div class="tag">لا ديون</div>'}</div>
+    <div class="card"><b>أكبر المدينين</b>${top.length ? top.map((r, i) => `<a class="row rank" href="#/customer/${r.customer.id}"><span class="rk">${i + 1}</span><span class="nm2">${esc(r.customer.name)}</span><span class="num">${fmt(r.customer.balance)}</span></a>`).join('') : '<div class="tag">لا ديون</div>'}</div>
     <div class="card stack"><div class="row"><b>المتأخرون</b><span class="pill">أكثر من 30 يوماً</span></div>
       ${late.length ? late.map((r) => `<div class="row"><span>${esc(r.customer.name)}</span><span class="num owe">${fmt(r.customer.balance)}</span></div>`).join('') : '<div class="tag">لا يوجد متأخرون</div>'}</div></div>`;
   return page({ title: 'التقارير', body, sub, nav: 'reports' });
@@ -225,13 +224,14 @@ function viewSettings() {
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
   const hasContacts = 'contacts' in navigator && 'ContactsManager' in window;
-  const sub = `<form id="addForm" class="addhero" autocomplete="off">
-    <b class="addtitle">${ic('user-plus')}إضافة عميل جديد</b>
+  const open = !!ui.addOpen;
+  const sub = `<div class="addhero"><button type="button" class="addtoggle" data-act="toggle-add" aria-expanded="${open}"><span>${ic('user-plus')}إضافة عميل جديد</span>${ic('back')}</button>
+    ${open ? `<form id="addForm" class="addform" autocomplete="off">
     <input id="f-name" required placeholder="اسم العميل" aria-label="اسم العميل">
-    <div class="input-row"><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" placeholder="رقم التلفون (اختياري)" aria-label="رقم التلفون">${hasContacts ? `<button type="button" class="addbtn" data-act="pick-contact" aria-label="من جهات الاتصال">${ic('contacts')}</button>` : ''}</div>
-    <input id="f-open" inputmode="decimal" dir="ltr" style="text-align:right" placeholder="رصيد سابق من الدفتر الورقي (اختياري)" aria-label="رصيد سابق">
+    <div class="two-in"><div class="input-row"><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" placeholder="رقم الهاتف" aria-label="رقم الهاتف">${hasContacts ? `<button type="button" class="addbtn" data-act="pick-contact" aria-label="من جهات الاتصال">${ic('contacts')}</button>` : ''}</div>
+    <input id="f-open" inputmode="decimal" dir="ltr" style="text-align:right" placeholder="الرصيد السابق" aria-label="الرصيد السابق"></div>
     <div id="formErr"></div>
-    <button class="save" type="submit">حفظ العميل</button></form>`;
+    <button class="save" type="submit">حفظ العميل</button></form>` : ''}</div>`;
   const body = `<div class="body">
     <div class="card stack"><div class="sw"><div><b>قفل التطبيق</b><div class="tag">بصمة الجوال أو رمز فتحه نفسه</div></div>${tgl('toggle-lock', meta.lockEnabled)}</div>
       <div class="tag">مطفأ افتراضياً، فيفتح التطبيق مباشرة. صاحب الجوال يفعّله أو يعطّله متى شاء.</div></div>
@@ -597,6 +597,7 @@ const ACTS = {
   'toggle-owner': () => toggleOwner(),
   backup: () => backup(),
   restore: () => document.getElementById('restoreFile')?.click(),
+  'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
   'pick-contact': () => pickContact(),
   redo: async (el) => {
     const ev = eventsLog(ledger.allOps()).find((e) => e.id === el.dataset.id);

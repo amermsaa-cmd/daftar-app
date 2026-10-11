@@ -170,3 +170,15 @@ button.card{font:inherit;color:inherit}
 .addhero input{background:#141c26;border:1px solid #26323f;border-radius:12px;padding:12px 14px;color:#e7edf3;font:inherit;font-size:16px;width:100%}
 .addhero input::placeholder{color:#7f8fa0}
 .addhero .save{min-height:52px;font-size:17px;border-radius:12px;--kind:var(--buy);--kind-ink:var(--buy-ink)}
+
+.addtoggle{display:flex;align-items:center;justify-content:space-between;background:#141c26;border:1px solid #26323f;border-radius:12px;padding:14px;color:#e7edf3;font-weight:700;font-size:16px;cursor:pointer}
+.addtoggle span{display:flex;align-items:center;gap:8px}
+.addtoggle>.ic{transform:scaleX(-1) rotate(90deg);transition:transform .15s}
+.addtoggle[aria-expanded=true]>.ic{transform:scaleX(-1) rotate(-90deg)}
+.addform{display:flex;flex-direction:column;gap:10px}
+.two-in{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two-in .input-row{min-width:0}
+.rank{padding:11px 0;border-top:1px solid var(--line);color:inherit;text-decoration:none}
+.rank .rk{width:24px;height:24px;border-radius:50%;background:var(--chip);color:var(--muted);font-size:12px;display:flex;align-items:center;justify-content:center;flex:none}
+.rank .nm2{flex:1;font-size:16px}
+.rank .num{font-size:17px}
