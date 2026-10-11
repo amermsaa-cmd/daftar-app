@@ -2,7 +2,22 @@
 // رسائل الواتساب للعميل: نص الرسالة وقرار الإرسال. يستعملها التطبيق (اليدوي) والجسر (التلقائي).
 import { formatMoney, toLatinDigits } from './util.js';
 
-const KIND_AR = { purchase: 'شراء', payment: 'تسديد', return: 'مرتجع' };
+// عبارة العملية في الرسالة
+const KIND_LINE = { purchase: 'مشترياتك بالآجل', payment: 'تسديدك', return: 'مرتجعك' };
+const NB = '\u00A0'; // مسافة لا تنقسم: تفصل التاريخ عن الوقت بوضوح
+
+/**
+ * التاريخ ثم الوقت بتوقيت الرياض (ثابت على أي جهاز): "11/10/2026م   -   03:50م"
+ * @param {number} ts
+ */
+export function waStamp(ts) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Riyadh', day: 'numeric', month: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  }).formatToParts(new Date(ts)).map((x) => [x.type, x.value]));
+  const h = String(parts.hour).padStart(2, '0');
+  const pm = /pm/i.test(parts.dayPeriod || '');
+  return `${parts.day}/${parts.month}/${parts.year}م${NB.repeat(3)}-${NB.repeat(3)}${h}:${parts.minute}${pm ? 'م' : 'ص'}`;
+}
 
 /**
  * رقم الجوال بصيغة دولية لرابط wa.me (يفترض السعودية لو بدأ بصفر أو بـ 5).
@@ -26,29 +41,34 @@ export function waSettings(settings) {
     on: s['wa.on'] === true,            // أزرار الواتساب اليدوية في التطبيق
     auto: s['wa.auto'] !== false,       // التلقائي (الجسر): الأصل، ويُطفأ بـ false
     shop: typeof s['wa.shop'] === 'string' ? s['wa.shop'] : '',
-    bal: s['wa.bal'] !== false,
+    bal: s['wa.bal'] === true,          // الرصيد مطفأ افتراضياً (كما في الدفتر القديم)
     last: s['wa.last'] !== false,
   };
 }
 
 /**
- * نص الرسالة للعميل. بدون اسم العميل (قد يكون الاسم مثل «محمد ألمنيوم»).
+ * نص الرسالة للعميل (بدون اسمه وبدون تحية): اسم البقالة، العملية، الرصيد (اختياري)، التاريخ والوقت.
  * @param {import('./ops.js').State} state
  * @param {string} cid
- * @param {import('./ops.js').Txn | null} lastTxn العملية المذكورة (null = بلا سطر آخر عملية)
+ * @param {import('./ops.js').Txn | null} lastTxn العملية المذكورة
+ * @param {number} [nowTs] وقت الرسالة إن لم توجد عملية
  */
-export function waMessage(state, cid, lastTxn) {
+export function waMessage(state, cid, lastTxn, nowTs = Date.now()) {
   const c = state.customers.get(cid);
   if (!c) return '';
   const w = waSettings(state.settings);
-  const lines = ['السلام عليكم'];
+  /** @type {string[]} */
+  const lines = [];
+  if (w.shop) lines.push(w.shop);
+  if (w.last && lastTxn && /** @type {Record<string,string>} */ (KIND_LINE)[lastTxn.kind]) {
+    lines.push(`${/** @type {Record<string,string>} */ (KIND_LINE)[lastTxn.kind]} : ${formatMoney(lastTxn.amount)} ريال`);
+  }
   if (w.bal) {
-    lines.push(c.balance > 0 ? `رصيدك الحالي: ${formatMoney(c.balance)} ر.س`
-      : c.balance < 0 ? `لك عندنا: ${formatMoney(-c.balance)} ر.س`
+    lines.push(c.balance > 0 ? `رصيدك الحالي : ${formatMoney(c.balance)} ريال`
+      : c.balance < 0 ? `لك عندنا : ${formatMoney(-c.balance)} ريال`
         : 'حسابك مسدّد، لا يوجد مبلغ مستحق');
   }
-  if (w.last && lastTxn) lines.push(`آخر عملية: ${KIND_AR[/** @type {'purchase'} */ (lastTxn.kind)] || lastTxn.kind} ${formatMoney(lastTxn.amount)} ر.س`);
-  if (w.shop) lines.push(w.shop);
+  lines.push(waStamp(lastTxn ? lastTxn.ts : nowTs));
   return lines.join('\n');
 }
 

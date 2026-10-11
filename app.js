@@ -65,10 +65,12 @@ async function refreshBridge() {
 function waSheet(cid, tid = '') {
   const c = ledger.customer(cid);
   if (!c || !c.phone) { toast('لا يوجد رقم جوال لهذا العميل'); return; }
-  sheet(`<b>رسالة للعميل</b>
-    <textarea id="waText" class="keyin" rows="5" style="text-align:start;line-height:1.7">${esc(waMessage(cid))}</textarea>
-    <div class="tag">يمكنك تعديل النص قبل الإرسال. لن تُرسل إلا بعد ضغطك «إرسال» داخل واتساب.</div>
-    <div class="two"><button data-act="close-ov">إلغاء</button><button class="go" data-act="wa-go" data-cid="${c.id}" data-tid="${tid}" style="background:#25d366;color:#fff">${ic('chat')}فتح واتساب</button></div>`);
+  const msg = waMessage(cid);
+  const el = sheet(`<div class="wahead"><span class="wapic">${ic('chat')}</span><span class="wanm"><b>${esc(c.name)}</b><small dir="ltr">${esc(c.phone)}</small></span></div>
+    <div class="wabody"><textarea id="waText" rows="${msg.split('\n').length}" aria-label="نص الرسالة">${esc(msg)}</textarea></div>
+    <div class="wafoot"><div class="two"><button data-act="close-ov">إلغاء</button><button class="wago" data-act="wa-go" data-cid="${c.id}" data-tid="${tid}">${ic('chat')}فتح واتساب</button></div>
+    <div class="tag center">اضغط على النص لتعديله. لا تُرسل إلا بضغطك «إرسال» داخل واتساب.</div></div>`);
+  el.classList.add('wa');
 }
 /** بعد حفظ عملية: لو الجسر حيّ ننتظر إرساله وإلا تظهر الورقة اليدوية فوراً */
 async function afterSaveWa(cid, tid) {
@@ -852,6 +854,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('input', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
+  if (t.id === 'waText') { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }
   if (t.id === 'dq') { ui.debtQ = t.value; const pos = t.selectionStart; render(); const n = /** @type {HTMLInputElement | null} */ (document.getElementById('dq')); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
