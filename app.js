@@ -18,7 +18,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '' };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '' };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -301,6 +301,12 @@ const SYNC_MSG = {
   error: ['تعذّر الاتصال بالسيرفر، سنحاول لاحقاً', 'warn'],
 };
 
+/** بطاقة إعدادات مطوية: صف واحد (أيقونة + اسم + حالة) وتنفتح بالضغط */
+function acc(id, icon, title, status, inner) {
+  const open = !!ui.accOpen[id];
+  return `<div class="acc${open ? ' open' : ''}"><button type="button" class="acchead" data-act="acc" data-id="${id}" aria-expanded="${open}"><span class="ai">${ic(icon)}</span><span class="at"><b>${title}</b><small>${status}</small></span>${ic('back')}</button>${open ? `<div class="ab">${inner}</div>` : ''}</div>`;
+}
+
 function syncCardHtml() {
   const open = meta.syncOn || ui.syncSetup;
   let inner = `<div class="tag">مطفأة افتراضياً. يبقى التطبيق يعمل كاملاً بدونها.</div>`;
@@ -320,8 +326,8 @@ function syncCardHtml() {
       <button class="btn" data-act="sync-now">${ic('save')}مزامنة الآن</button>
       <div class="tag">عند انقطاع الإنترنت تُحفظ العمليات في الجوال وتُرسل عند عودته.</div></div>`;
   }
-  return `<div class="card stack"><div class="sw"><div><b>المزامنة مع السيرفر</b><div class="tag">نسخة احتياطية تلقائية، وتزامن بين الجوالات</div></div>${tgl('toggle-sync', open)}</div>${inner}</div>
-    <div class="card stack" style="opacity:.55"><div class="row"><span>نسخة Google Drive</span>${ic('lock')}</div><div class="tag">قريباً: يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة.</div></div>`;
+  const stTxt = meta.syncOn ? (syncClient && SYNC_MSG[syncClient.state] ? 'مفعّلة' : 'متصل ✓') : 'مطفأة';
+  return acc('sync', 'save', 'المزامنة مع السيرفر', stTxt, `<div class="sw"><div><span>نسخة احتياطية تلقائية، وتزامن بين الجوالات</span></div>${tgl('toggle-sync', open)}</div>${inner}`);
 }
 
 function waCardHtml() {
@@ -331,7 +337,7 @@ function waCardHtml() {
       <div class="sw"><span>تضمين آخر عملية</span>${tgl('toggle-wa-last', meta.waLast)}</div>
       <div class="tag">بعد حفظ كل عملية تظهر رسالة العميل مباشرة (وتتجاوزها بـ «إلغاء»)، ويبقى الزر في حساب العميل. لعميل له رقم جوال فقط، والرسالة تُرسل منك داخل واتساب.</div></div>`
     : `<div class="tag">مطفأة افتراضياً. لا يظهر الزر إلا لعميل له رقم جوال.</div>`;
-  return `<div class="card stack"><div class="sw"><div><b>أزرار الواتساب</b><div class="tag">إرسال رصيد العميل برسالة جاهزة</div></div>${tgl('toggle-wa', meta.waOn)}</div>${inner}</div>`;
+  return acc('wa', 'chat', 'أزرار الواتساب', meta.waOn ? 'مفعّلة' : 'مطفأة', `<div class="sw"><span>إرسال رصيد العميل برسالة جاهزة</span>${tgl('toggle-wa', meta.waOn)}</div>${inner}`);
 }
 
 function viewSettings() {
@@ -347,19 +353,18 @@ function viewSettings() {
     <div id="formErr"></div>
     <button class="save" type="submit">حفظ العميل</button></form>` : ''}</div>`;
   const body = `<div class="body">
-    <div class="card stack"><div class="sw"><div><b>قفل التطبيق</b><div class="tag">بصمة الجوال أو رمز فتحه نفسه</div></div>${tgl('toggle-lock', meta.lockEnabled)}</div>
-      <div class="tag">مطفأ افتراضياً، فيفتح التطبيق مباشرة. صاحب الجوال يفعّله أو يعطّله متى شاء.</div></div>
-    <div class="card stack"><div class="sw"><div><b>رمز صاحب البقالة</b><div class="tag">اطلب رمزاً لعكس العمليات وتعديل العملاء</div></div>${tgl('toggle-owner', meta.ownerRequired)}</div>
-      <div class="tag">مطفأ افتراضياً. كل عكس أو تعديل يُسجَّل في الأحداث حتى لو كان الرمز مطفأً. احفظ الرمز جيداً.</div></div>
-    <a class="card stack" href="#/events" style="text-decoration:none;color:inherit"><div class="row"><b>الأحداث</b>${ic('clock')}</div><div class="tag">${evCount ? evCount + ' حدث (عكس وتعديل وأرشفة)' : 'لا توجد أحداث بعد'}</div></a>
+    ${acc('lock', 'finger', 'قفل التطبيق', meta.lockEnabled ? 'مفعّل' : 'مطفأ', `<div class="sw"><span>بصمة الجوال أو رمز فتحه نفسه</span>${tgl('toggle-lock', meta.lockEnabled)}</div>
+      <div class="tag">مطفأ افتراضياً، فيفتح التطبيق مباشرة. صاحب الجوال يفعّله أو يعطّله متى شاء.</div>`)}
+    ${acc('owner', 'lock', 'رمز صاحب البقالة', meta.ownerRequired ? 'مفعّل' : 'مطفأ', `<div class="sw"><span>اطلب رمزاً لعكس العمليات وتعديل العملاء</span>${tgl('toggle-owner', meta.ownerRequired)}</div>
+      <div class="tag">مطفأ افتراضياً. كل عكس أو تعديل يُسجَّل في الأحداث حتى لو كان الرمز مطفأً. احفظ الرمز جيداً.</div>`)}
+    <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وأرشفة)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     ${waCardHtml()}
     ${syncCardHtml()}
-    <div class="card stack"><b>النسخة الاحتياطية</b>
-      <div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
+    ${acc('backup', 'share', 'النسخة الاحتياطية', meta.lastBackupAt ? 'آخر نسخة ' + fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ بعد', `<div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
       <input id="restoreFile" type="file" accept=".json,application/json" hidden>
       <div class="tag">آخر نسخة: ${lastB}</div>
-      <div class="tag" id="persistTag">التخزين الدائم: ...</div></div>
-    <div class="card stack" style="opacity:.55"><div class="row"><span>اسم الموظف مع العملية</span>${ic('lock')}</div><div class="row"><span>سقف الدين</span>${ic('lock')}</div><div class="tag">خيارات مقفلة، تُفتح في إصدارات لاحقة</div></div>
+      <div class="tag" id="persistTag">التخزين الدائم: ...</div>`)}
+    ${acc('later', 'lock', 'Google Drive وخيارات أخرى', 'قريباً', `<div class="tag">قريباً: نسخة Google Drive يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة. واسم الموظف مع العملية وسقف الدين. مقفلة حالياً وتُفتح في إصدارات لاحقة.</div>`)}
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
   return page({ title: 'الإعدادات', body, sub, nav: 'settings' });
 }
@@ -717,6 +722,7 @@ const ACTS = {
   backup: () => backup(),
   restore: () => document.getElementById('restoreFile')?.click(),
   'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
+  acc: (el) => { const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render(); },
   'toggle-wa': async () => { meta.waOn = !meta.waOn; await db.setMeta('waOn', meta.waOn); render(); },
   'toggle-wa-bal': async () => { meta.waBal = !meta.waBal; await db.setMeta('waBal', meta.waBal); render(); },
   'toggle-wa-last': async () => { meta.waLast = !meta.waLast; await db.setMeta('waLast', meta.waLast); render(); },

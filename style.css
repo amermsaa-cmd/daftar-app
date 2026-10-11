@@ -194,3 +194,11 @@ button.card{font:inherit;color:inherit}
 .syncst.bad{color:var(--danger)}
 
 .wabtn{border-color:#25d366}
+
+.acc{flex:none;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:block}
+.acchead{width:100%;display:flex;align-items:center;gap:12px;padding:14px;background:none;border:0;color:var(--txt);font:inherit;text-align:start;cursor:pointer}
+.acchead .at{flex:1;display:flex;flex-direction:column;gap:2px}
+.acchead .at small{color:var(--muted);font-size:12px;font-weight:400}
+.acchead>.ic:last-child{transform:rotate(180deg);transition:transform .15s}
+.acc.open .acchead>.ic:last-child{transform:rotate(90deg)}
+.acc .ab{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding:12px 14px 14px}
