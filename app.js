@@ -348,6 +348,7 @@ function syncCardHtml() {
       <div class="row"><span class="tag">آخر مزامنة</span><span>${last ? fullFmt.format(last) : 'لم تتم بعد'}</span></div>
       <div class="row"><span class="tag">بانتظار الإرسال</span><span class="num">${pending} عملية</span></div>
       <button class="btn" data-act="sync-now">${ic('save')}مزامنة الآن</button>
+      <button class="btn" data-act="sync-change">${ic('gear')}تغيير مفتاح البقالة</button>
       <div class="tag">عند انقطاع الإنترنت تُحفظ العمليات في الجوال وتُرسل عند عودته.</div></div>`;
   }
   const stTxt = meta.syncOn ? (syncClient && SYNC_MSG[syncClient.state] ? 'مفعّلة' : 'متصل ✓') : 'مطفأة';
@@ -778,6 +779,12 @@ const ACTS = {
     } else if (meta.syncKey && !ui.syncSetup) {
       meta.syncOn = true; await db.setMeta('syncOn', true); startSync(); schedSync(100);
     } else ui.syncSetup = !ui.syncSetup;
+    render();
+  },
+  'sync-change': async () => {
+    clearTimeout(syncTimer); syncClient = null;
+    meta.syncOn = false; meta.syncKey = ''; ui.syncSetup = true;
+    await db.setMeta('syncOn', false); await db.setMeta('syncKey', '');
     render();
   },
   'sync-link': async () => {
