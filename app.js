@@ -104,7 +104,7 @@ function recentOpsHtml() {
   return `<div class="tag">آخر العمليات</div>` + list.map((t) => {
     const d = new Date(t.ts);
     const when = (d.toDateString() === today ? 'اليوم ' : dayFmt.format(d) + ' ') + timeFmt.format(d);
-    return `<a class="card row" href="#/customer/${t.cid}"><div class="nm"><b>${esc(s.customers.get(t.cid).name)}</b><small>${when}</small></div><span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span><span class="num">${fmt(t.amount)}</span></a>`;
+    return `<a class="card row ops" href="#/customer/${t.cid}"><div class="nm"><b>${esc(s.customers.get(t.cid).name)}</b><small>${when}</small></div><span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span><span class="num">${fmt(t.amount)}</span></a>`;
   }).join('');
 }
 
@@ -148,8 +148,8 @@ function viewCustomer(cid) {
   if (!c) return viewMissing();
   const st = statement(s, cid, { cycleOnly: !ui.cust.all });
   const days = [...st.days].reverse().map((d) => `<div class="day">${dayFmt.format(d.date)}</div>` +
-    [...d.rows].reverse().map(({ txn: t, after }) => `<button class="card row" style="width:100%;text-align:inherit;cursor:pointer" data-act="txn" data-tid="${t.id}">
-      <span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span><span class="tag">${timeFmt.format(t.ts)}${t.note ? ' · ' + esc(t.note) : ''}</span>
+    [...d.rows].reverse().map(({ txn: t, after }) => `<button class="card row ops" style="width:100%;text-align:inherit;cursor:pointer" data-act="txn" data-tid="${t.id}">
+      <span class="tag">${timeFmt.format(t.ts)}${t.note ? ' · ' + esc(t.note) : ''}</span><span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span>
       <span class="num">${signed(t)}<small>${fmt(after)}</small></span></button>`).join('')).join('');
   const sub = `<div class="center herobox"><b style="font-size:20px">${esc(c.name)}</b>
       <div class="tag">رقم ${c.codeNo}${c.phone ? ' · ' + esc(c.phone) : ''}</div>
@@ -197,7 +197,7 @@ function viewDebts() {
   const q = ui.debtQ.trim();
   const shown = q ? rows.filter((r) => ledger.search(q, { limit: 500 }).some((c) => c.id === r.customer.id)) : rows;
   const list = shown.map((r) => `<a class="card row" href="#/customer/${r.customer.id}"><div class="nm"><b>${esc(r.customer.name)}</b><small>${r.days === 0 ? 'آخر حركة اليوم' : `منذ ${r.days} يوم`}</small></div><span class="num owe">${fmt(r.customer.balance)}</span></a>`).join('');
-  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="dq" type="search" autocomplete="off" placeholder="ابحث في الجدول" value="${esc(ui.debtQ)}"></div></div>`;
+  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="dq" type="search" autocomplete="off" placeholder="ابحث في الجدول" value="${esc(ui.debtQ)}"><a class="addbtn" href="#/add" aria-label="إضافة عميل جديد">${ic('plus')}</a></div></div>`;
   const body = `<div class="body">
     ${list || '<div class="card center tag">لا توجد ديون حالياً</div>'}</div>`;
   return page({ title: 'جدول الديون', body, sub, nav: 'debts', extra: `<span class="sp"></span><span class="tag">المجموع</span><span class="num owe">${fmt(total)}</span>` });
@@ -224,8 +224,15 @@ const tgl = (act, on) => `<button class="tg" role="switch" aria-checked="${on}" 
 function viewSettings() {
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
+  const hasContacts = 'contacts' in navigator && 'ContactsManager' in window;
+  const sub = `<form id="addForm" class="addhero" autocomplete="off">
+    <b class="addtitle">${ic('user-plus')}إضافة عميل جديد</b>
+    <input id="f-name" required placeholder="اسم العميل" aria-label="اسم العميل">
+    <div class="input-row"><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" placeholder="رقم التلفون (اختياري)" aria-label="رقم التلفون">${hasContacts ? `<button type="button" class="addbtn" data-act="pick-contact" aria-label="من جهات الاتصال">${ic('contacts')}</button>` : ''}</div>
+    <input id="f-open" inputmode="decimal" dir="ltr" style="text-align:right" placeholder="رصيد سابق من الدفتر الورقي (اختياري)" aria-label="رصيد سابق">
+    <div id="formErr"></div>
+    <button class="save" type="submit">حفظ العميل</button></form>`;
   const body = `<div class="body">
-    <a class="btn" href="#/add">${ic('user-plus')}إضافة عميل</a>
     <div class="card stack"><div class="sw"><div><b>قفل التطبيق</b><div class="tag">بصمة الجوال أو رمز فتحه نفسه</div></div>${tgl('toggle-lock', meta.lockEnabled)}</div>
       <div class="tag">مطفأ افتراضياً، فيفتح التطبيق مباشرة. صاحب الجوال يفعّله أو يعطّله متى شاء.</div></div>
     <div class="card stack"><div class="sw"><div><b>رمز صاحب البقالة</b><div class="tag">اطلب رمزاً لعكس العمليات وتعديل العملاء</div></div>${tgl('toggle-owner', meta.ownerRequired)}</div>
@@ -238,7 +245,7 @@ function viewSettings() {
       <div class="tag" id="persistTag">التخزين الدائم: ...</div></div>
     <div class="card stack" style="opacity:.55"><div class="row"><span>اسم الموظف مع العملية</span>${ic('lock')}</div><div class="row"><span>سقف الدين</span>${ic('lock')}</div><div class="tag">خيارات مقفلة، تُفتح في إصدارات لاحقة</div></div>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
-  return page({ title: 'الإعدادات', body, nav: 'settings' });
+  return page({ title: 'الإعدادات', body, sub, nav: 'settings' });
 }
 
 function viewEvents() {

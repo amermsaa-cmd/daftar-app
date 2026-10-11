@@ -158,3 +158,15 @@ button.card{font:inherit;color:inherit}
 .savedtoast div{border-radius:16px;padding:18px 26px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.35)}
 .savedtoast b{display:block;font-size:20px}
 .savedtoast span{font-size:14px;opacity:.9}
+
+/* صفوف بأعمدة ثابتة: الاسم يمين، التسمية بالمنتصف، المبلغ أقصى اليسار */
+.card.row.ops{display:grid;grid-template-columns:1fr 92px 1fr;gap:8px;align-items:center}
+.card.row.ops .pill{justify-self:center;text-align:center;min-width:62px;white-space:nowrap}
+.card.row.ops .num{justify-self:end}
+.addbtn{width:44px;height:44px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--buy);border:0;border-radius:11px;padding:0;cursor:pointer;text-decoration:none}
+.addbtn .ic{stroke:var(--buy-ink);width:24px;height:24px}
+.addhero{padding:2px 16px 0;display:flex;flex-direction:column;gap:10px}
+.addtitle{display:flex;align-items:center;gap:8px;font-size:17px}
+.addhero input{background:#141c26;border:1px solid #26323f;border-radius:12px;padding:12px 14px;color:#e7edf3;font:inherit;font-size:16px;width:100%}
+.addhero input::placeholder{color:#7f8fa0}
+.addhero .save{min-height:52px;font-size:17px;border-radius:12px;--kind:var(--buy);--kind-ink:var(--buy-ink)}
