@@ -752,7 +752,10 @@ const ACTS = {
   backup: () => backup(),
   restore: () => document.getElementById('restoreFile')?.click(),
   'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
-  acc: (el) => { const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render(); },
+  acc: (el) => {
+    const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render();
+    if (id === 'wa' && ui.accOpen[id]) refreshBridge().then(() => render()); // نتحقق من الجسر لحظة فتح البطاقة
+  },
   'toggle-wa': () => setWa('wa.on', !waCfg().on),
   'toggle-wa-auto': () => setWa('wa.auto', !waCfg().auto),
   'toggle-wa-bal': () => setWa('wa.bal', !waCfg().bal),
