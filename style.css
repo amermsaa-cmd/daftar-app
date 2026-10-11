@@ -202,3 +202,14 @@ button.card{font:inherit;color:inherit}
 .acchead>.ic:last-child{transform:rotate(180deg);transition:transform .15s}
 .acc.open .acchead>.ic:last-child{transform:rotate(90deg)}
 .acc .ab{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding:12px 14px 14px}
+
+.actrow{display:flex;justify-content:center;gap:28px;padding:12px 0 0}
+.actic{display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:0;color:#9aa9b8;font:inherit;cursor:pointer;text-decoration:none}
+.actic span{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#1b2733;border:1px solid #26323f}
+.actic .ic{width:26px;height:26px;stroke:#fff}
+.actic.main span{background:var(--buy);border-color:transparent}
+.actic.main .ic{stroke:var(--buy-ink)}
+.actic.wa span{border-color:#25d366}
+.actic small{font-size:12px}
+.two3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.btn.sel{border-color:var(--buy)}

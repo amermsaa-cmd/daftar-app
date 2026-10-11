@@ -167,10 +167,13 @@ function schedSync(delay = 1500) {
 // ===== هيكل الصفحة =====
 const NAV = [['home', 'home', 'الرئيسية'], ['debts', 'list', 'الديون'], ['reports', 'chart', 'التقارير'], ['settings', 'gear', 'الإعدادات']];
 
-function page({ title, back = '', body, nav = '', extra = '', style = '', sub = '' }) {
+/** عناصر قائمة ⋮ للشاشة الحالية (لا قائمة = لا زر ⋮) */
+let curMenu = /** @type {{i: string, l: string, d: string, cid?: string}[]} */ ([]);
+function page({ title, back = '', body, nav = '', extra = '', style = '', sub = '', menu = /** @type {{i: string, l: string, d: string, cid?: string}[]} */ ([]) }) {
+  curMenu = menu;
   const navHtml = nav ? `<nav class="nav">${NAV.map(([r, i, l]) => `<a href="#/${r}" class="${nav === r ? 'on' : ''}">${ic(i)}${l}</a>`).join('')}</nav>` : '';
   const top = `<div class="top">${back ? `<button class="back" data-act="back" data-to="${back}" aria-label="رجوع">${ic('back')}</button>` : ''}${title}${extra}
-      <button class="dotsbtn" data-act="menu" aria-label="القائمة">${ic('dots')}</button></div>`;
+      ${menu.length ? `<button class="dotsbtn" data-act="menu" aria-label="القائمة">${ic('dots')}</button>` : ''}</div>`;
   return `<div class="pg" style="${style}">
     ${sub ? `<div class="rechead">${top}${sub}</div>` : top}
     ${body}${navHtml}</div>`;
@@ -242,14 +245,18 @@ function viewCustomer(cid) {
   const sub = `<div class="center herobox"><b style="font-size:20px">${esc(c.name)}</b>
       <div class="tag">رقم ${c.codeNo}${c.phone ? ' · ' + esc(c.phone) : ''}</div>
       <div class="big ${c.balance > 0 ? 'owe' : c.balance < 0 ? 'pos' : ''}">${c.balance < 0 ? 'له ' : ''}${fmt(Math.abs(c.balance))}</div>
-      <div class="tag">${ui.cust.all ? 'كل الحركات' : 'المستحق منذ آخر تصفية'}</div></div>`;
+      <div class="tag">${ui.cust.all ? 'كل الحركات' : 'المستحق منذ آخر تصفية'}</div>
+      <div class="actrow"><a class="actic main" href="#/record/${c.id}" aria-label="تسجيل عملية"><span>${ic('cart')}</span><small>تسجيل عملية</small></a>
+      ${waCfg().on && c.phone ? `<button class="actic wa" data-act="wa-open" data-cid="${c.id}" aria-label="تذكير بالرصيد"><span>${ic('chat')}</span><small>تذكير بالرصيد</small></button>` : ''}</div></div>`;
   const body = `<div class="body">
-    <a class="btn main" href="#/record/${c.id}">${ic('cart')}تسجيل عملية</a>
-    ${waCfg().on && c.phone ? `<button class="btn wabtn" data-act="wa-open" data-cid="${c.id}">${ic('chat')}إرسال الرصيد للعميل عبر واتساب</button>` : ''}
-    <div class="two"><button class="btn" data-act="share" data-cid="${c.id}">${ic('share')}مشاركة</button><button class="btn" data-act="print" data-cid="${c.id}">${ic('print')}طباعة</button></div>
-    <div class="two"><button class="btn" data-act="toggle-all">${ic('list')}${ui.cust.all ? 'الدورة الحالية' : 'عرض الكل'}</button><button class="btn" data-act="edit" data-cid="${c.id}">${ic('gear')}تعديل البيانات</button></div>
     ${days || '<div class="card center tag">لا توجد حركات بعد</div>'}</div>`;
-  return page({ title: 'حساب العميل', back: '#/home', nav: '-', sub, body });
+  const menu = [
+    { i: 'print', l: 'طباعة', d: 'print' },
+    { i: 'share', l: 'مشاركة', d: 'share' },
+    { i: 'list', l: ui.cust.all ? 'الدورة الحالية' : 'عرض الكل', d: 'toggle-all' },
+    { i: 'gear', l: 'تعديل البيانات', d: 'edit' },
+  ].map((m) => ({ ...m, cid: c.id }));
+  return page({ title: 'حساب العميل', back: '#/home', nav: '-', sub, body, menu });
 }
 
 function viewAdd() {
@@ -385,6 +392,7 @@ function viewSettings() {
       <input id="restoreFile" type="file" accept=".json,application/json" hidden>
       <div class="tag">آخر نسخة: ${lastB}</div>
       <div class="tag" id="persistTag">التخزين الدائم: ...</div>`)}
+    ${acc('theme', 'sun', 'المظهر', { auto: 'تلقائي', light: 'نهاري', dark: 'ليلي' }[meta.theme] || 'تلقائي', `<div class="two3">${[['auto', 'auto', 'تلقائي'], ['light', 'sun', 'نهاري'], ['dark', 'moon', 'ليلي']].map(([k, i, l]) => `<button class="btn${meta.theme === k ? ' sel' : ''}" data-act="theme" data-t="${k}" aria-pressed="${meta.theme === k}">${ic(i)}${l}</button>`).join('')}</div>`)}
     ${acc('later', 'lock', 'Google Drive وخيارات أخرى', 'قريباً', `<div class="tag">قريباً: نسخة Google Drive يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة. واسم الموظف مع العملية وسقف الدين. مقفلة حالياً وتُفتح في إصدارات لاحقة.</div>`)}
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
   return page({ title: 'الإعدادات', body, sub, nav: 'settings' });
@@ -685,11 +693,12 @@ async function pickContact() {
 const ACTS = {
   back: (el) => { location.hash = el.dataset.to || '#/home'; },
   menu: () => {
-    const opt = (t, i, l) => `<button data-act="theme" data-t="${t}" role="menuitemradio" aria-checked="${meta.theme === t}">${ic(i)}${l}</button>`;
-    $ov.innerHTML = `<div data-act="menu-close" style="position:absolute;inset:0;z-index:25"></div><div class="menu" role="menu">${opt('auto', 'auto', 'تلقائي (حسب الجوال)')}${opt('light', 'sun', 'الوضع النهاري')}${opt('dark', 'moon', 'الوضع الليلي')}</div>`;
+    const items = curMenu.map((m) => `<button data-act="menu-do" data-do="${m.d}" data-cid="${m.cid || ''}" role="menuitem">${ic(m.i)}${m.l}</button>`).join('');
+    $ov.innerHTML = `<div data-act="menu-close" style="position:absolute;inset:0;z-index:25"></div><div class="menu" role="menu">${items}</div>`;
   },
+  'menu-do': (el) => { closeOv(); const fn = ACTS[/** @type {string} */ (el.dataset.do)]; if (fn) fn(el); },
   'menu-close': () => closeOv(),
-  theme: async (el) => { meta.theme = /** @type {string} */ (el.dataset.t); await db.setMeta('theme', meta.theme); applyTheme(); closeOv(); },
+  theme: async (el) => { meta.theme = /** @type {string} */ (el.dataset.t); await db.setMeta('theme', meta.theme); applyTheme(); closeOv(); render(); },
   scan: () => doScan(),
   'add-from-search': () => { ui.addPrefill = /** @type {HTMLInputElement} */ (document.getElementById('q'))?.value || ''; location.hash = '#/add'; },
   kind: (el) => {
