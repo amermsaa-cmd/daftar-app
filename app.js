@@ -42,6 +42,16 @@ function balHtml(c) {
   return '<span class="num">0</span>';
 }
 
+// رسالة تطمين بعد حفظ العملية: وسط الشاشة بلون العملية وتختفي وحدها
+function savedToast(kind, line) {
+  document.querySelector('.savedtoast')?.remove();
+  const v = { purchase: 'buy', payment: 'pay', return: 'ret' }[kind] || 'buy';
+  const el = document.createElement('div');
+  el.className = 'savedtoast';
+  el.innerHTML = `<div style="background:var(--${v});color:var(--${v}-ink)"><b>تم حفظ العملية ✓</b><span>${esc(line)}</span></div>`;
+  $app.appendChild(el);
+  window.setTimeout(() => el.remove(), 1500);
+}
 let toastTimer = 0;
 function toast(msg, ms = 2800) {
   document.querySelector('.toast')?.remove();
@@ -346,7 +356,7 @@ async function saveRecord() {
     const res = ledger[fn](r.cid, amount);
     await flush();
     const c = ledger.customer(r.cid);
-    toast(`✓ ${KIND[r.kind]} ${fmt(amount)} · ${c.name} · الرصيد ${c.balance < 0 ? 'له ' : ''}${fmt(Math.abs(res.balance))}`, 3500);
+    savedToast(r.kind, `${KIND[r.kind]} ${fmt(amount)} · ${c.name}`);
     ui.rec = null;
     location.hash = '#/home';
   } catch (e) {

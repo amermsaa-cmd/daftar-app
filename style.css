@@ -146,3 +146,15 @@ button.card{font:inherit;color:inherit}
 .rechead .kinds{padding:0 16px}
 .sheet.mid{align-items:center;justify-content:center;padding:24px}
 .sheet.mid>div{border-radius:18px;max-width:340px;padding:18px 16px}
+
+/* بطاقات أكبر قليلاً */
+.card.row{padding:14px}
+.card.row .nm b{font-size:18px}
+.card.row .num{font-size:20px}
+.card.row small{font-size:13.5px}
+.card.row .pill{font-size:12.5px;padding:3px 11px}
+.row .num small{font-size:12.5px}
+.savedtoast{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;pointer-events:none}
+.savedtoast div{border-radius:16px;padding:18px 26px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.savedtoast b{display:block;font-size:20px}
+.savedtoast span{font-size:14px;opacity:.9}
