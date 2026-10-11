@@ -192,3 +192,6 @@ button.card{font:inherit;color:inherit}
 .syncst{font-weight:700;font-size:13px;text-align:end}
 .syncst.warn{color:var(--pay)}
 .syncst.bad{color:var(--danger)}
+
+.wabtn{border-color:#25d366}
+.watoast{pointer-events:auto;margin-top:10px;display:inline-flex;gap:6px;align-items:center;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.6);color:inherit;border-radius:10px;padding:6px 12px;font:inherit;font-weight:700;cursor:pointer}
