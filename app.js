@@ -1,13 +1,14 @@
 // تطبيق دفتر الأجل على الجوال (الوضع الأول): بدون سيرفر، كل البيانات على الجهاز.
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
-  Ledger, LedgerError, toHalalas, formatMoney, shortId,
+  Ledger, LedgerError, isFrozenNow, effectiveCap, toHalalas, formatMoney, shortId,
   statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, waMessage as coreWaMessage, waReminder,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
 import { scanSupported, scanOnce } from './scan.js';
-import { SyncClient, verifyKey, SYNC_URL, notifyStatus, claimManual } from './sync.js';
+import { SyncClient, verifyKey, SYNC_URL, notifyStatus, claimManual, linkStatus, linkRequest } from './sync.js';
+import qrcode from './vendor/qrcode.js';
 
 const VERSION = '0.2.0';
 const RELOCK_MS = 5 * 60 * 1000;
@@ -18,7 +19,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0 };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -264,6 +265,15 @@ function viewRecord(cid) {
   return page({ title: 'تسجيل عملية', back: '#/home', nav: '-', sub, body, style: `--kind:var(--${v});--kind-ink:var(--${v}-ink)` });
 }
 
+/** نص شارة الإيقاف */
+function frozenText(c) {
+  const f = c.freeze;
+  if (!f) return '';
+  if (f.untilPaid) return 'موقوف الآجل · حتى يسدّد';
+  if (f.until) return `موقوف الآجل · حتى ${dayFmt.format(f.until)}`;
+  return 'موقوف الآجل';
+}
+
 function viewCustomer(cid) {
   const s = ledger.state;
   const c = s.customers.get(cid);
@@ -277,6 +287,7 @@ function viewCustomer(cid) {
       <div class="tag">رقم ${c.codeNo}${c.phone ? ' · ' + esc(c.phone) : ''}</div>
       <div class="big ${c.balance > 0 ? 'owe' : c.balance < 0 ? 'pos' : ''}">${c.balance < 0 ? 'له ' : ''}${fmt(Math.abs(c.balance))}</div>
       <div class="tag">${ui.cust.all ? 'كل الحركات' : 'المستحق منذ آخر تصفية'}</div>
+      ${isFrozenNow(c, Date.now()) ? `<div class="frzb">${ic('lock')}${esc(frozenText(c))}</div>` : ''}
       <div class="actrow"><a class="actic main" href="#/record/${c.id}" aria-label="تسجيل عملية"><span>${ic('cart')}</span><small>تسجيل عملية</small></a>
       ${waCfg().on && c.phone ? `<button class="actic wa" data-act="wa-open" data-cid="${c.id}" aria-label="تذكير بالرصيد"><span>${ic('chat')}</span><small>تذكير بالرصيد</small></button>` : ''}</div></div>`;
   const body = `<div class="body">
@@ -286,6 +297,7 @@ function viewCustomer(cid) {
     { i: 'share', l: 'مشاركة', d: 'share' },
     { i: 'list', l: ui.cust.all ? 'الدورة الحالية' : 'عرض الكل', d: 'toggle-all' },
     { i: 'gear', l: 'تعديل البيانات', d: 'edit' },
+    isFrozenNow(c, Date.now()) ? { i: 'lock', l: 'إعادة الآجل', d: 'unfreeze' } : { i: 'lock', l: 'إيقاف الآجل', d: 'freeze-open' },
   ].map((m) => ({ ...m, cid: c.id }));
   return page({ title: 'حساب العميل', back: '#/home', nav: '-', sub, body, menu });
 }
@@ -311,6 +323,7 @@ function viewEdit(cid) {
   const body = `<div class="body"><form id="editForm" class="stack" data-cid="${c.id}" autocomplete="off">
     <div class="form"><label for="f-name">اسم العميل</label><input id="f-name" required value="${esc(c.name)}"></div>
     <div class="form"><label for="f-phone">رقم الجوال</label><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" value="${esc(c.phone || '')}"></div>
+    <div class="form"><label for="f-cap">سقف خاص لهذا العميل بالريال (اختياري)</label><input id="f-cap" inputmode="decimal" dir="ltr" style="text-align:right" placeholder="فارغ = السقف العام" value="${c.cap ? fmt(c.cap).replace(/,/g, '') : ''}"></div>
     <label class="sw" for="f-wa"><span>إشعار واتساب تلقائي لهذا العميل</span><input id="f-wa" type="checkbox" ${c.waOff ? '' : 'checked'} style="width:22px;height:22px"></label>
     <div class="tag">كل تعديل يُسجَّل في الأحداث ويمكن الرجوع عنه.</div>
     <div id="formErr"></div>
@@ -362,6 +375,54 @@ function acc(id, icon, title, status, inner) {
   return `<div class="acc${open ? ' open' : ''}"><button type="button" class="acchead" data-act="acc" data-id="${id}" aria-expanded="${open}"><span class="ai">${ic(icon)}</span><span class="at"><b>${title}</b><small>${status}</small></span>${ic('back')}</button>${open ? `<div class="ab">${inner}</div>` : ''}</div>`;
 }
 
+const dsec = (/** @type {string} */ t) => `<div class="dsec">${t}</div>`;
+
+/** حالة ربط واتساب كما يراها السيرفر (يحدّثها الجسر) */
+const link = { state: 'unlinked', phone: /** @type {string | null} */ (null), req: /** @type {any} */ (null), qr: /** @type {string | null} */ (null), code: /** @type {string | null} */ (null), bridgeAlive: false, ok: false };
+let linkTimer = 0;
+async function refreshLink() {
+  if (!meta.syncOn || !meta.syncKey) { link.ok = false; return false; }
+  const l = await linkStatus(SYNC_URL, meta.syncKey, (u, i) => fetch(u, i));
+  if (!l) { link.ok = false; return false; }
+  const before = JSON.stringify(link);
+  Object.assign(link, { state: l.state, phone: l.phone, req: l.req, qr: l.qr, code: l.code, bridgeAlive: l.bridgeAlive, ok: true });
+  return JSON.stringify(link) !== before;
+}
+/** نتابع الحالة كل 3 ثوانٍ ما دامت بطاقة الواتساب مفتوحة في الإعدادات */
+function startLinkPoll() {
+  if (linkTimer) return;
+  linkTimer = window.setInterval(async () => {
+    if (route()[0] !== 'settings' || !ui.accOpen.wa || document.hidden) { clearInterval(linkTimer); linkTimer = 0; return; }
+    const typing = document.activeElement && document.activeElement.id === 'linkPhone';
+    if (await refreshLink() && !typing) render();
+  }, 3000);
+}
+function waLinkHtml() {
+  if (!meta.syncOn) return '<div class="tag">يحتاج تفعيل «المزامنة مع السيرفر» أولاً (في بطاقة المزامنة بالأسفل).</div>';
+  if (!link.ok) return '<div class="tag">جارٍ التحقق من حالة الربط...</div>';
+  const stepsOf = (/** @type {string[]} */ a) => `<div class="lksteps">${a.map((t, i) => `<div><b>${i + 1}</b><span>${t}</span></div>`).join('')}</div>`;
+  if (link.state === 'linked') {
+    return `<div class="lkok">${ic('check')}<div><b>مربوط برقم <span dir="ltr">${esc(link.phone || '')}</span></b><div class="tag">${link.bridgeAlive ? 'الجسر شغّال ويرسل' : 'الجسر غير متصل الآن: تُستعمل الأزرار اليدوية'}</div></div></div>
+      <button class="btn" data-act="link-off">${ic('lock')}فصل الربط</button>`;
+  }
+  if (link.state === 'waiting' && (link.code || link.qr)) {
+    let main = '';
+    if (link.code) main = `<div class="lkcode" dir="ltr">${[...link.code.slice(0, 4)].map((c) => `<span>${esc(c)}</span>`).join('')}<i>-</i>${[...link.code.slice(4)].map((c) => `<span>${esc(c)}</span>`).join('')}</div>`;
+    else if (link.qr) { const q = qrcode(0, 'L'); q.addData(link.qr); q.make(); main = `<div class="lkqr">${q.createSvgTag({ cellSize: 4, margin: 2, scalable: true })}</div>`; }
+    return `${main}<div class="tag center">${link.code ? 'الرمز صالح دقائق قليلة' : 'يتجدد الرمز تلقائياً كل نحو 20 ثانية'}</div>
+      ${stepsOf(link.code ? ['افتح واتساب في جوال البقالة', 'اضغط ⋮ ثم «الأجهزة المرتبطة» ثم «ربط جهاز»', 'اختر «الربط برقم الهاتف بدلاً من ذلك»', 'اكتب الرمز أعلاه'] : ['اعرض هذه الشاشة على جهاز آخر (جوال أو كمبيوتر)', 'في واتساب جوال البقالة: ⋮ ثم «الأجهزة المرتبطة» ثم «ربط جهاز»', 'وجّه كاميرا الجوال إلى الرمز لتمسحه'])}
+      <button class="btn" data-act="link-cancel">إلغاء</button>`;
+  }
+  const preparing = (link.req && link.req.mode !== 'unlink') || (Date.now() - ui.linkAsked < 40000 && ui.linkAsked > 0);
+  if (preparing) return '<div class="tag center">جارٍ تجهيز الرمز من الجسر... لحظات</div><button class="btn" data-act="link-cancel">إلغاء</button>';
+  const code = ui.linkMode === 'code';
+  return `<div class="tag">لإرسال رسائل العملاء تلقائياً من رقم البقالة، اربط واتساب البقالة مرة واحدة.</div>
+    <div class="kinds" style="grid-template-columns:1fr 1fr"><button type="button" data-act="link-mode" data-m="code" aria-pressed="${code}">بالرمز (من نفس الجوال)</button><button type="button" data-act="link-mode" data-m="qr" aria-pressed="${!code}">بالـQR (من جهاز آخر)</button></div>
+    ${code ? `<label class="tag" for="linkPhone">رقم واتساب البقالة</label><input id="linkPhone" class="keyin" type="tel" inputmode="tel" dir="ltr" style="text-align:right" autocomplete="off" placeholder="05xxxxxxxx" value="${esc(ui.linkPhone)}">` : ''}
+    ${link.bridgeAlive ? '' : '<div class="tag" style="color:var(--pay)">الجسر غير متصل الآن، شغّله أولاً ثم أعد المحاولة.</div>'}
+    <button class="btn main" data-act="link-go" ${link.bridgeAlive ? '' : 'disabled'}>${ic('chat')}${code ? 'احصل على رمز الربط' : 'اعرض رمز الـQR'}</button>`;
+}
+
 function syncCardHtml() {
   const open = meta.syncOn || ui.syncSetup;
   let inner = `<div class="tag">مطفأة افتراضياً. يبقى التطبيق يعمل كاملاً بدونها.</div>`;
@@ -383,7 +444,7 @@ function syncCardHtml() {
       <div class="tag">عند انقطاع الإنترنت تُحفظ العمليات في الجوال وتُرسل عند عودته.</div></div>`;
   }
   const stTxt = meta.syncOn ? (syncClient && SYNC_MSG[syncClient.state] ? 'مفعّلة' : 'متصل ✓') : 'مطفأة';
-  return acc('sync', 'save', 'المزامنة مع السيرفر', stTxt, `<div class="sw"><div><span>نسخة احتياطية تلقائية، وتزامن بين الجوالات</span></div>${tgl('toggle-sync', open)}</div>${inner}`);
+  return { status: stTxt, inner: `<div class="sw"><div><span>نسخة احتياطية تلقائية، وتزامن بين الجوالات</span></div>${tgl('toggle-sync', open)}</div>${inner}` };
 }
 
 function waCardHtml() {
@@ -395,7 +456,7 @@ function waCardHtml() {
       <div class="sw"><span>تضمين آخر عملية</span>${tgl('toggle-wa-last', w.last)}</div>
       <div class="tag">${meta.syncOn ? (bridge.alive ? 'الجسر شغّال ✓' : 'الجسر غير متصل الآن: تُستعمل الأزرار اليدوية') : 'يحتاج تفعيل المزامنة مع السيرفر'}</div>
       <div class="tag">لإيقاف الإشعار لعميل معيّن: تعديل بيانات العميل.</div></div>`;
-  return acc('wa', 'chat', 'رسائل الواتساب', w.auto ? 'تلقائي' : w.on ? 'يدوي' : 'مطفأة', inner);
+  return { status: w.auto ? 'تلقائي' : w.on ? 'يدوي' : 'مطفأة', inner };
 }
 
 function shopCardHtml() {
@@ -407,7 +468,7 @@ function shopCardHtml() {
       <label class="tag" for="shopPhoneIn">رقم هاتف البقالة</label>
       <input id="shopPhoneIn" class="keyin" type="tel" inputmode="tel" dir="ltr" style="text-align:right" autocomplete="off" placeholder="05xxxxxxxx" value="${esc(sh.phone)}">
       <div class="tag">يظهر في كشف الحساب المطبوع فقط.</div></div>`;
-  return acc('shop', 'home', 'بيانات البقالة', sh.name ? esc(sh.name) : 'لم يُدخل بعد', inner);
+  return { status: sh.name ? esc(sh.name) : 'لم يُدخل بعد', inner };
 }
 
 function remCardHtml() {
@@ -443,10 +504,12 @@ function remCardHtml() {
       ${missed ? '<div class="tag" style="color:var(--pay)">لم يُرسل تذكير هذا الشهر (فات موعده). تأكد أن الجسر شغّال، أو أرسله الآن.</div>' : ''}
       <div class="tag">يحتاج الجسر شغّالاً. لو كان متوقفاً في ذلك اليوم يرسل عند عودته، وإن فات اليوم يظهر لك تنبيه هنا. لا يصل التذكير للمسدّدين ولا لمن له رصيد عندنا ولا لمن أطفأت له الإشعار. لا تتكرر الرسالة للعميل في نفس الشهر.</div>
       <button class="btn" data-act="rem-now" ${plan.length ? '' : 'disabled'}>${ic('chat')}${ui.remConfirm ? `اضغط للتأكيد: إرسال لـ ${plan.length} عميل الآن` : 'إرسال التذكير الآن للجميع (مرة واحدة)'}</button></div>` : ''}`;
-  return acc('rem', 'chat', 'التذكير الشهري', r.on ? `يوم ${r.day} من كل شهر` : 'مطفأ', inner);
+  return { status: r.on ? `يوم ${r.day} من كل شهر` : 'مطفأ', inner };
 }
 
 function viewSettings() {
+  const shop = shopCardHtml(); const wa = waCardHtml(); const rem = remCardHtml(); const sy = syncCardHtml();
+  const capOn = !!ledger.state.settings.capEnabled;
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
   const hasContacts = 'contacts' in navigator && 'ContactsManager' in window;
@@ -459,21 +522,22 @@ function viewSettings() {
     <div id="formErr"></div>
     <button class="save" type="submit">حفظ العميل</button></form>` : ''}</div>`;
   const body = `<div class="body">
-    ${shopCardHtml()}
-    ${acc('lock', 'finger', 'قفل التطبيق', meta.lockEnabled ? 'مفعّل' : 'مطفأ', `<div class="sw"><span>بصمة الجوال أو رمز فتحه نفسه</span>${tgl('toggle-lock', meta.lockEnabled)}</div>
-      <div class="tag">مطفأ افتراضياً، فيفتح التطبيق مباشرة. صاحب الجوال يفعّله أو يعطّله متى شاء.</div>`)}
-    ${acc('owner', 'lock', 'رمز صاحب البقالة', meta.ownerRequired ? 'مفعّل' : 'مطفأ', `<div class="sw"><span>اطلب رمزاً لعكس العمليات وتعديل العملاء</span>${tgl('toggle-owner', meta.ownerRequired)}</div>
-      <div class="tag">مطفأ افتراضياً. كل عكس أو تعديل يُسجَّل في الأحداث حتى لو كان الرمز مطفأً. احفظ الرمز جيداً.</div>`)}
-    <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وأرشفة)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
-    ${waCardHtml()}
-    ${remCardHtml()}
-    ${syncCardHtml()}
-    ${acc('backup', 'share', 'النسخة الاحتياطية', meta.lastBackupAt ? 'آخر نسخة ' + fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ بعد', `<div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
+    ${acc('shop', 'home', 'بيانات البقالة', shop.status, shop.inner + dsec('المظهر') + `<div class="two3">${[['auto', 'auto', 'تلقائي'], ['light', 'sun', 'نهاري'], ['dark', 'moon', 'ليلي']].map(([k, i, l]) => `<button class="btn${meta.theme === k ? ' sel' : ''}" data-act="theme" data-t="${k}" aria-pressed="${meta.theme === k}">${ic(i)}${l}</button>`).join('')}</div>`)}
+    ${acc('sec', 'lock', 'الأمان والتحكم', `${meta.lockEnabled ? 'قفل مفعّل' : 'القفل مطفأ'} · ${capOn ? 'سقف مفعّل' : 'السقف مطفأ'}`,
+      `<div class="sw"><span>قفل التطبيق (بصمة الجوال أو رمز فتحه)</span>${tgl('toggle-lock', meta.lockEnabled)}</div>
+      <div class="tag">مطفأ افتراضياً، فيفتح التطبيق مباشرة.</div>
+      <div class="sw"><span>رمز صاحب البقالة لعكس العمليات وتعديل العملاء</span>${tgl('toggle-owner', meta.ownerRequired)}</div>
+      <div class="tag">مطفأ افتراضياً. كل عكس أو تعديل يُسجَّل في الأحداث حتى لو كان الرمز مطفأً. احفظ الرمز جيداً.</div>
+      ${dsec('سقوف الدين')}
+      <div class="sw"><span>تفعيل سقف الدين</span>${tgl('toggle-cap', capOn)}</div>
+      ${capOn ? `<div class="mset"><span>السقف العام لكل عميل</span><div class="mstep"><button type="button" data-act="cap-step" data-d="-1" aria-label="أنقص">−</button><b>${fmt(Number(ledger.state.settings.globalCap || 0))} ريال</b><button type="button" data-act="cap-step" data-d="1" aria-label="زِد">+</button></div></div>` : ''}
+      <div class="tag">مطفأ افتراضياً. يسري على كل عميل ليس له سقف خاص (يُحدَّد من «تعديل بيانات العميل»). عند تجاوزه يظهر تنبيه عند تسجيل الشراء. وإيقاف الآجل لعميل من قائمة ⋮ في حسابه.</div>`)}
+    ${acc('wa', 'chat', 'الواتساب', (link.ok && link.state === 'linked' ? 'مربوط ✓ · ' : '') + wa.status, dsec('الربط') + waLinkHtml() + dsec('الرسائل') + wa.inner + dsec('التذكير الشهري') + rem.inner)}
+    ${acc('sync', 'save', 'المزامنة والنسخ الاحتياطي', sy.status, dsec('المزامنة مع السيرفر') + sy.inner + dsec('نسخة احتياطية') + `<div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
       <input id="restoreFile" type="file" accept=".json,application/json" hidden>
       <div class="tag">آخر نسخة: ${lastB}</div>
-      <div class="tag" id="persistTag">التخزين الدائم: ...</div>`)}
-    ${acc('theme', 'sun', 'المظهر', { auto: 'تلقائي', light: 'نهاري', dark: 'ليلي' }[meta.theme] || 'تلقائي', `<div class="two3">${[['auto', 'auto', 'تلقائي'], ['light', 'sun', 'نهاري'], ['dark', 'moon', 'ليلي']].map(([k, i, l]) => `<button class="btn${meta.theme === k ? ' sel' : ''}" data-act="theme" data-t="${k}" aria-pressed="${meta.theme === k}">${ic(i)}${l}</button>`).join('')}</div>`)}
-    ${acc('later', 'lock', 'Google Drive وخيارات أخرى', 'قريباً', `<div class="tag">قريباً: نسخة Google Drive يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة. واسم الموظف مع العملية وسقف الدين. مقفلة حالياً وتُفتح في إصدارات لاحقة.</div>`)}
+      <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + '<div class="tag">قريباً: نسخة Google Drive يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة.</div>')}
+    <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
   return page({ title: 'الإعدادات', body, sub, nav: 'settings' });
 }
@@ -487,6 +551,8 @@ function viewEvents() {
     if (e.type === 'txn.void') return `<div class="card stack"><div class="row"><b>عكس ${KIND[e.kind]} ${fmt(e.amount)}</b><span class="pill">عكس</span></div>
       <div class="tag">${name(e.cid)} · ${fullFmt.format(e.ts)}${e.reason ? ' · ' + esc(e.reason) : ''}</div>
       <button class="btn" data-act="redo" data-id="${e.id}">${ic('undo')}إعادة تسجيلها</button></div>`;
+    if (e.type === 'txn.exception') return `<div class="card stack"><div class="row"><b>استثناء: ${KIND[e.kind]} ${fmt(e.amount)}</b><span class="pill pay">استثناء</span></div><div class="tag">${name(e.cid)} · ${fullFmt.format(e.ts)}</div></div>`;
+    if (e.type === 'customer.freeze') return `<div class="card stack"><div class="row"><b>${e.frozen ? 'إيقاف الآجل' : 'إعادة الآجل'} ${name(e.cid)}</b><span class="pill">إيقاف</span></div><div class="tag">${fullFmt.format(e.ts)}${e.frozen ? (e.untilPaid ? ' · حتى يسدّد' : e.until ? ' · حتى ' + dayFmt.format(e.until) : '') : ''}</div></div>`;
     if (e.type === 'customer.update') return `<div class="card stack"><div class="row"><b>تعديل بيانات ${name(e.cid)}</b><span class="pill">تعديل</span></div>
       ${e.changes.map((c) => `<div class="tag">${fieldName[c.field]}: ${val(c.field, c.from)} ← ${val(c.field, c.to)}</div>`).join('')}
       <div class="tag">${fullFmt.format(e.ts)}</div>
@@ -583,14 +649,14 @@ const ERR = {
   'needs-approval': 'العميل موقوف أو تجاوز السقف',
 };
 
-async function saveRecord() {
+async function saveRecord(approve = false) {
   const r = ui.rec;
   if (!r) return;
   const amount = toHalalas(r.amt);
   if (!amount) { toast('أدخل مبلغاً'); return; }
   try {
     const fn = { purchase: 'purchase', payment: 'payment', return: 'ret' }[r.kind];
-    const res = ledger[fn](r.cid, amount);
+    const res = ledger[fn](r.cid, amount, r.kind === 'purchase' && approve ? { approve: true } : undefined);
     await flush();
     const c = ledger.customer(r.cid);
     savedToast(r.kind, `${KIND[r.kind]} ${fmt(amount)} · ${c.name}`);
@@ -599,8 +665,23 @@ async function saveRecord() {
     // الجسر حيّ: ننتظر إرساله ونتنبه لو فشل. وإلا ورقة الرسالة اليدوية فوراً
     afterSaveWa(r.cid, res.txn.id);
   } catch (e) {
+    if (e instanceof LedgerError && e.code === 'needs-approval') { approvalDialog(r.cid, amount); return; }
     toast(e instanceof LedgerError ? (ERR[e.code] || e.code) : 'تعذّر الحفظ');
   }
+}
+
+/** عميل موقوف أو الشراء يتجاوز السقف: موافق = استثناء يُسجَّل، إلغاء = لا يُسجَّل شيء */
+function approvalDialog(cid, amount) {
+  const c = ledger.customer(cid);
+  const chk = ledger.checkPurchase(cid, amount);
+  const lines = [];
+  if (chk.frozen) lines.push(`${esc(c.name)} ${esc(frozenText(c))}.`);
+  if (chk.overCap) lines.push(`الرصيد بعد الشراء <b>${fmt(chk.after)}</b> من أصل سقف <b>${fmt(chk.cap)}</b>.`);
+  const title = chk.frozen ? 'هذا العميل موقوف الآجل' : 'هذا الشراء يتجاوز سقف العميل';
+  sheet(`<div class="apv"><span class="apic">${ic('lock')}</span><b class="aptt">${title}</b>
+    <div class="apbd">${lines.join('<br>')}<br>هل تريد تسجيل الشراء كاستثناء؟</div>
+    <div class="two"><button class="btn" data-act="apv-no">إلغاء العملية</button><button class="btn apyes" data-act="apv-yes">موافق، استثناء</button></div>
+    <div class="tag center">«موافق» تُسجَّل العملية كاستثناء في سجل الأحداث. «إلغاء» لا يُسجَّل شيء.</div></div>`, '', true);
 }
 
 function showFormError(e, retry) {
@@ -632,7 +713,10 @@ async function submitEdit(cid, force = false) {
   const phone = /** @type {HTMLInputElement} */ (document.getElementById('f-phone')).value;
   try {
     const waOff = !(/** @type {HTMLInputElement} */ (document.getElementById('f-wa'))).checked;
-    ledger.updateCustomer(cid, { name, phone, waOff, force });
+    const capIn = /** @type {HTMLInputElement} */ (document.getElementById('f-cap')).value.trim();
+    const capH = capIn ? toHalalas(capIn) : null; // فارغ أو 0 = بلا سقف خاص
+    if (capIn && capIn !== '0' && !capH) { toast('السقف غير صحيح'); return; }
+    ledger.updateCustomer(cid, { name, phone, waOff, cap: capH || null, force });
     await flush();
     ui.editOk = null;
     toast('✓ تم حفظ التعديل');
@@ -842,13 +926,51 @@ const ACTS = {
   'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
   acc: (el) => {
     const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render();
-    if ((id === 'wa' || id === 'rem') && ui.accOpen[id]) refreshBridge().then(() => render()); // نتحقق من الجسر لحظة فتح البطاقة
+    if ((id === 'wa' || id === 'rem') && ui.accOpen[id]) refreshBridge().then(() => render());
+    if (id === 'wa' && ui.accOpen[id]) { refreshLink().then(() => render()); startLinkPoll(); } // نتحقق من الجسر لحظة فتح البطاقة
   },
   'toggle-wa': () => setWa('wa.on', !waCfg().on),
   'toggle-wa-auto': () => setWa('wa.auto', !waCfg().auto),
   'toggle-wa-bal': () => setWa('wa.bal', !waCfg().bal),
   'toggle-wa-last': () => setWa('wa.last', !waCfg().last),
   'wa-open': (el) => { document.querySelector('.savedtoast')?.remove(); waSheet(/** @type {string} */ (el.dataset.cid), el.dataset.tid || ''); },
+  'apv-no': () => { closeOv(); if (ui.rec) ui.rec.amt = ''; render(); toast('أُلغيت العملية ولم يُسجَّل شيء'); },
+  'apv-yes': () => { closeOv(); saveRecord(true); },
+  'freeze-open': (el) => {
+    ui.frz = 'open';
+    const cid = /** @type {string} */ (el.dataset.cid);
+    const c = ledger.customer(cid);
+    sheet(`<b style="font-size:17px">إيقاف الآجل لـ ${esc(c.name)}</b>
+      <div class="opts" id="frzOpts">${[['open', 'إيقاف مفتوح (حتى أعيده أنا)'], ['week', 'لمدة أسبوع'], ['month', 'لمدة شهر'], ['paid', 'حتى يسدّد كامل رصيده']].map(([k, l]) => `<button type="button" data-act="frz-pick" data-k="${k}" aria-pressed="${k === 'open'}"><span class="rd"></span>${l}</button>`).join('')}</div>
+      <div class="tag">يمنع الشراء بالآجل فقط. التسديد والمرتجع يعملان كالمعتاد. يرجع الآجل تلقائياً عند انتهاء المدة أو بالسداد حسب اختيارك.</div>
+      <div class="two"><button class="btn" data-act="close-ov">إلغاء</button><button class="btn apyes" data-act="frz-yes" data-cid="${cid}">إيقاف الآجل</button></div>`);
+  },
+  'frz-pick': (el) => { ui.frz = /** @type {string} */ (el.dataset.k); document.querySelectorAll('#frzOpts button').forEach((b) => b.setAttribute('aria-pressed', String(b === el))); },
+  'frz-yes': async (el) => {
+    const cid = /** @type {string} */ (el.dataset.cid);
+    const DAY = 86400000;
+    ledger.setFrozen(cid, { frozen: true, until: ui.frz === 'week' ? Date.now() + 7 * DAY : ui.frz === 'month' ? Date.now() + 30 * DAY : null, untilPaid: ui.frz === 'paid' });
+    await flush(); closeOv(); render(); toast('✓ أُوقف الآجل لهذا العميل');
+  },
+  unfreeze: async (el) => { ledger.setFrozen(/** @type {string} */ (el.dataset.cid), { frozen: false }); await flush(); render(); toast('✓ أُعيد الآجل لهذا العميل'); },
+  'toggle-cap': async () => { const on = !ledger.state.settings.capEnabled; await setWa('capEnabled', on); if (on && !ledger.state.settings.globalCap) await setWa('globalCap', 100000); },
+  'cap-step': (el) => { const g = Number(ledger.state.settings.globalCap || 0); return setWa('globalCap', Math.max(0, g + Number(el.dataset.d) * 10000)); },
+  'link-mode': (el) => { ui.linkMode = /** @type {string} */ (el.dataset.m); render(); },
+  'link-go': async () => {
+    const code = ui.linkMode === 'code';
+    const phone = toLatin(ui.linkPhone || '').replace(/\D/g, '');
+    if (code && phone.length < 9) { toast('اكتب رقم واتساب البقالة'); return; }
+    const ok = await linkRequest(SYNC_URL, meta.syncKey, code ? { mode: 'code', phone } : { mode: 'qr' }, (u, i) => fetch(u, i));
+    if (!ok) { toast('تعذّر إرسال الطلب، تحقق من الاتصال'); return; }
+    ui.linkAsked = Date.now();
+    await refreshLink(); render(); startLinkPoll();
+  },
+  'link-cancel': () => { ui.linkAsked = 0; link.state = 'unlinked'; link.code = null; link.qr = null; link.req = null; render(); },
+  'link-off': async () => {
+    const ok = await linkRequest(SYNC_URL, meta.syncKey, { mode: 'unlink' }, (u, i) => fetch(u, i));
+    toast(ok ? 'تم طلب فصل الربط من الجسر' : 'تعذّر إرسال الطلب');
+    ui.linkAsked = 0; await refreshLink(); render(); startLinkPoll();
+  },
   'toggle-rem': () => { ui.remConfirm = false; return setWa('rem.on', !remSettings(ledger.state.settings).on); },
   'rem-step': (el) => {
     const r = remSettings(ledger.state.settings);
@@ -965,6 +1087,7 @@ document.addEventListener('input', (e) => {
     clearTimeout(waShopTimer);
     waShopTimer = window.setTimeout(() => saveShop(t), 600);
   }
+  if (t.id === 'linkPhone') ui.linkPhone = toLatin(t.value);
   if (t.id === 'waText') { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }

@@ -197,13 +197,13 @@ button.card{font:inherit;color:inherit}
 
 .wabtn{border-color:#25d366}
 
-.acc{flex:none;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:block}
-.acchead{width:100%;display:flex;align-items:center;gap:12px;padding:14px;background:none;border:0;color:var(--txt);font:inherit;text-align:start;cursor:pointer}
+.acc{flex:none;background:var(--card);border:1px solid #223446;border-radius:14px;overflow:hidden;display:block}
+.acchead{width:100%;display:flex;align-items:center;gap:12px;padding:14px;background:#14222f;border:0;color:#fff;font:inherit;text-align:start;cursor:pointer}
 .acchead .at{flex:1;display:flex;flex-direction:column;gap:2px}
-.acchead .at small{color:var(--muted);font-size:12px;font-weight:400}
+.acchead .at small{color:#9db0c2;font-size:12px;font-weight:400}
 .acchead>.ic:last-child{transform:rotate(180deg);transition:transform .15s}
 .acc.open .acchead>.ic:last-child{transform:rotate(90deg)}
-.acc .ab{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding:12px 14px 14px}
+.acc .ab{display:flex;flex-direction:column;gap:12px;border-top:0;padding:12px 14px 14px}
 
 .actrow{display:flex;justify-content:center;gap:28px;padding:12px 0 0}
 .actic{display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:0;color:#9aa9b8;font:inherit;cursor:pointer;text-decoration:none}
@@ -268,3 +268,34 @@ button.card{font:inherit;color:inherit}
 .mlist>div{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
 .mlast{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}.mlast .ic{width:16px;height:16px;stroke:var(--buy)}
 .btn[disabled]{opacity:.45}
+
+.frzb{display:inline-flex;align-items:center;gap:6px;margin-top:6px;background:#ef8e8e;color:#2a0a0a;font-weight:700;font-size:13px;padding:4px 12px;border-radius:20px}
+.frzb .ic{stroke:#2a0a0a;width:15px;height:15px}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opts button{display:flex;align-items:center;gap:10px;background:var(--chip);border:1px solid var(--line);color:var(--txt);border-radius:12px;padding:12px;font:inherit;cursor:pointer;text-align:start}
+.opts button[aria-pressed=true]{border-color:var(--pay)}
+.opts .rd{width:18px;height:18px;border-radius:50%;border:2px solid var(--muted);flex:none}
+.opts button[aria-pressed=true] .rd{border-color:var(--pay);background:radial-gradient(var(--pay) 45%,transparent 50%)}
+.apyes{background:var(--pay);color:var(--pay-ink);border-color:transparent;font-weight:700}
+.apv{display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center}
+.apic{width:58px;height:58px;border-radius:50%;background:var(--pay);display:flex;align-items:center;justify-content:center}
+.apic .ic{stroke:var(--pay-ink);width:30px;height:30px}
+.aptt{font-size:18px}.apbd{line-height:1.8}
+.apv .two{width:100%}
+
+.acchead .ic{stroke:#fff}
+.acchead .ai{width:38px;height:38px;border-radius:12px;background:#1f3347;display:flex;align-items:center;justify-content:center;flex:none}
+.acc.open .acchead{border-bottom:3px solid var(--buy)}
+.dsec{font-weight:800;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;margin-top:2px}
+.ab>.dsec:first-child{border-top:0;padding-top:0}
+
+.lkcode{display:flex;justify-content:center;gap:6px;align-items:center}
+.lkcode span{width:34px;height:46px;border-radius:10px;background:var(--bg);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800}
+.lkcode i{font-style:normal;color:var(--muted);font-weight:800}
+.lkqr{background:#fff;border-radius:12px;padding:8px;max-width:220px;margin:0 auto;width:100%}
+.lkqr svg{display:block;width:100%;height:auto}
+.lksteps{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:1.7}
+.lksteps div{display:flex;gap:10px;align-items:flex-start}
+.lksteps b{flex:none;width:24px;height:24px;border-radius:50%;background:var(--chip);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px}
+.lkok{display:flex;gap:12px;align-items:center;background:var(--bg);border:1px solid var(--buy);border-radius:14px;padding:12px}
+.lkok .ic{stroke:var(--buy);width:28px;height:28px;flex:none}

@@ -32,7 +32,25 @@ import { OP, compareOps } from './ops.js';
  * @property {string} cid
  * @property {boolean} archived
  *
- * @typedef {VoidEvent | UpdateEvent | ArchiveEvent} LedgerEvent
+ * @typedef {object} ExceptionEvent  شراء سُجّل كاستثناء (عميل موقوف أو تجاوز سقف)
+ * @property {string} id
+ * @property {number} ts
+ * @property {'txn.exception'} type
+ * @property {string} cid
+ * @property {string} tid
+ * @property {TxnKind} kind
+ * @property {number} amount بالهللة
+ *
+ * @typedef {object} FreezeEvent
+ * @property {string} id
+ * @property {number} ts
+ * @property {'customer.freeze'} type
+ * @property {string} cid
+ * @property {boolean} frozen
+ * @property {number | null} until
+ * @property {boolean} untilPaid
+ *
+ * @typedef {VoidEvent | UpdateEvent | ArchiveEvent | ExceptionEvent | FreezeEvent} LedgerEvent
  */
 
 /**
@@ -62,7 +80,10 @@ export function eventsLog(ops) {
   for (const op of sorted) {
     const d = op.data;
     if (op.type === OP.TXN && typeof d.tid === 'string') {
-      if (!txns.has(d.tid)) txns.set(d.tid, { cid: d.cid, kind: d.kind, amount: d.amount });
+      if (!txns.has(d.tid)) {
+        txns.set(d.tid, { cid: d.cid, kind: d.kind, amount: d.amount });
+        if (d.approved === true && d.kind === 'purchase') out.push({ id: op.id, ts: op.ts, type: 'txn.exception', cid: d.cid, tid: d.tid, kind: d.kind, amount: d.amount });
+      }
     } else if (op.type === OP.CUSTOMER_UPDATE) {
       const c = custs.get(d.cid);
       if (!c) continue;
@@ -81,6 +102,8 @@ export function eventsLog(ops) {
         if (to !== c.cap) { changes.push({ field: 'cap', from: c.cap, to }); c.cap = to; }
       }
       if (changes.length) out.push({ id: op.id, ts: op.ts, type: 'customer.update', cid: d.cid, changes });
+    } else if (op.type === OP.CUSTOMER_FREEZE) {
+      if (custs.has(d.cid)) out.push({ id: op.id, ts: op.ts, type: 'customer.freeze', cid: d.cid, frozen: !!d.frozen, until: typeof d.until === 'number' ? d.until : null, untilPaid: !!d.untilPaid });
     } else if (op.type === OP.CUSTOMER_ARCHIVE) {
       if (custs.has(d.cid)) out.push({ id: op.id, ts: op.ts, type: 'customer.archive', cid: d.cid, archived: !!d.archived });
     } else if (op.type === OP.TXN_VOID) {

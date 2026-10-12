@@ -154,3 +154,27 @@ export async function claimManual(baseUrl, key, tid, fetchFn) {
     return res.ok ? await res.json() : null;
   } catch { return null; }
 }
+
+/**
+ * حالة ربط واتساب: {state, phone, req, qr, code, bridgeAlive} أو null عند تعذّر الاتصال
+ * @param {string} baseUrl @param {string} key @param {typeof fetch} fetchFn
+ * @returns {Promise<any>}
+ */
+export async function linkStatus(baseUrl, key, fetchFn) {
+  try {
+    const res = await fetchFn(`${baseUrl}/v1/wa/link`, { headers: { Authorization: `Bearer ${key.trim()}` } });
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+
+/**
+ * طلب من التطبيق للجسر: mode = code (مع phone) | qr | unlink
+ * @param {string} baseUrl @param {string} key @param {{mode: string, phone?: string}} body @param {typeof fetch} fetchFn
+ */
+export async function linkRequest(baseUrl, key, body, fetchFn) {
+  try {
+    const res = await fetchFn(`${baseUrl}/v1/wa/link`, { method: 'POST', headers: { Authorization: `Bearer ${key.trim()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return res.ok;
+  } catch { return false; }
+}
+
