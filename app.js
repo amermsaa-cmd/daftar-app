@@ -181,13 +181,19 @@ function startSync() {
   });
 }
 
+/** إعادة رسم الخلفية فقط إن لم يكن المستخدم يكتب (وإلا يختفي الكيبورد وما كُتب) */
+function renderIfIdle() {
+  const a = document.activeElement;
+  if (!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'))) render();
+}
+
 let drvAt = 0;
 async function runSync() {
   if (!syncClient || locked) return;
   const st = await syncClient.sync();
   if (st === 'idle') { meta.syncLastAt = syncClient.lastSyncAt; await db.setMeta('syncLastAt', meta.syncLastAt); }
   if (location.hash.startsWith('#/settings')) await refreshBridge();
-  if (st === 'idle' && Date.now() - drvAt > 600000) { drvAt = Date.now(); if (await refreshDrive() && (location.hash.startsWith('#/home') || location.hash === '#/')) render(); }
+  if (st === 'idle' && Date.now() - drvAt > 600000) { drvAt = Date.now(); if (await refreshDrive() && (location.hash.startsWith('#/home') || location.hash === '#/')) renderIfIdle(); }
   if (location.hash.startsWith('#/settings') && !ui.syncSetup) render();
   return st;
 }
@@ -247,11 +253,18 @@ function resultsHtml(q) {
 const CL_SHOW = 12;
 function recentCustomersHtml() {
   const s = ledger.state;
-  const ids = [];
-  for (const t of [...s.txns.values()].filter((x) => !x.voided && x.kind !== 'opening' && s.customers.has(x.cid)).sort((x, y) => y.ts - x.ts)) {
-    if (!ids.includes(t.cid)) ids.push(t.cid);
-    if (ids.length >= 20) break;
+  // الترتيب: الأكثر تعاملاً في آخر 30 يوماً أولاً، ثم الأحدث (ثبات أماكن المتكررين)
+  const since = Date.now() - 30 * 86400000;
+  /** @type {Map<string, {n: number, last: number}>} */
+  const st = new Map();
+  for (const t of s.txns.values()) {
+    if (t.voided || t.kind === 'opening' || !s.customers.has(t.cid)) continue;
+    const e = st.get(t.cid) || { n: 0, last: 0 };
+    if (t.ts >= since) e.n++;
+    if (t.ts > e.last) e.last = t.ts;
+    st.set(t.cid, e);
   }
+  const ids = [...st.entries()].sort((x, y) => y[1].n - x[1].n || y[1].last - x[1].last).slice(0, 20).map(([cid]) => cid);
   if (!ids.length) return '';
   const pills = ids.map((cid, i) => `<a class="pill-c${i >= CL_SHOW ? ' x' : ''}" href="#/record/${cid}">${esc(s.customers.get(cid).name)}</a>`).join('');
   const more = ids.length > CL_SHOW ? `<button type="button" class="moreb" data-act="more-cl" data-n="${ids.length - CL_SHOW}">المزيد (${ids.length - CL_SHOW}) ▾</button>` : '';
