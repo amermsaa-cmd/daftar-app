@@ -417,7 +417,8 @@ function startDrivePoll() {
   if (drvTimer) return;
   drvTimer = window.setInterval(async () => {
     const waiting = ui.drvAsked > 0 && Date.now() - ui.drvAsked < 300000;
-    if (!waiting || route()[0] !== 'settings' || document.hidden) { clearInterval(drvTimer); drvTimer = 0; if (!waiting) ui.drvAsked = 0; return; }
+    if (!waiting || route()[0] !== 'settings') { clearInterval(drvTimer); drvTimer = 0; if (!waiting) ui.drvAsked = 0; return; }
+    if (document.hidden) return; // المستخدم في نافذة Google: ننتظر عودته ولا نوقف المتابعة
     if (await refreshDrive() && drv.d && drv.d.linked) { ui.drvAsked = 0; render(); toast('✓ تم ربط Google Drive'); }
   }, 3000);
 }
@@ -1240,6 +1241,10 @@ async function boot() {
   render();
   if (locked) tryUnlock(); else schedSync(800);
   window.addEventListener('online', () => schedSync(300));
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden || !ui.drvAsked || route()[0] !== 'settings') return;
+    if (await refreshDrive() && drv.d && drv.d.linked) { ui.drvAsked = 0; render(); toast('✓ تم ربط Google Drive'); } else startDrivePoll();
+  });
   window.setInterval(() => { if (!document.hidden) schedSync(0); }, 60000);
 }
 
