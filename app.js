@@ -227,7 +227,7 @@ function recentOpsHtml() {
   const today = new Date().toDateString();
   const seen = new Set();
   for (const t of list) { if (seen.size < 4) seen.add(t.cid); }
-  const chips = `<div class="tag">آخر العملاء</div><div class="chips">${[...seen].map((cid) => { const nm = s.customers.get(cid).name; return `<a class="chip" href="#/record/${cid}"><span class="av">${esc([...nm][0] || '؟')}</span><span>${esc(nm)}</span></a>`; }).join('')}</div>`;
+  const chips = `<div class="tag">آخر العملاء</div><div class="chips">${[...seen].map((cid) => `<a class="chip" href="#/record/${cid}">${esc(s.customers.get(cid).name)}</a>`).join('')}</div>`;
   const rows = list.slice(0, 5).map((t) => {
     const d = new Date(t.ts);
     const when = (d.toDateString() === today ? 'اليوم ' : dayFmt.format(d) + ' ') + timeFmt.format(d);
