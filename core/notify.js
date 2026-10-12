@@ -16,7 +16,7 @@ export function waStamp(ts) {
   }).formatToParts(new Date(ts)).map((x) => [x.type, x.value]));
   const h = String(parts.hour).padStart(2, '0');
   const pm = /pm/i.test(parts.dayPeriod || '');
-  return `${parts.day}/${parts.month}/${parts.year}م${NB.repeat(3)}-${NB.repeat(3)}${h}:${parts.minute}${pm ? 'م' : 'ص'}`;
+  return `${parts.day}/${parts.month}/${parts.year}${NB}م${NB.repeat(3)}-${NB.repeat(3)}${h}:${parts.minute}${NB}${pm ? 'م' : 'ص'}`;
 }
 
 /**
