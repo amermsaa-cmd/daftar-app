@@ -1,6 +1,6 @@
 // خدمة العمل بدون إنترنت: تحفظ ملفات التطبيق عند أول فتح، وبعدها يشتغل التطبيق كاملاً بلا نت.
 // BUILD يكتبه build.mjs في كل بناء، فيتغيّر هذا الملف مع كل إصدار ويتحدّث التطبيق على الجوال.
-const BUILD = 'f7acc19c0b';
+const BUILD = '1a4c846802';
 const CACHE = `daftar-${BUILD}`;
 
 self.addEventListener('install', (event) => {

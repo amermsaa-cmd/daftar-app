@@ -589,8 +589,7 @@ function viewSettings() {
       ${capOn ? `<div class="mset"><span>السقف العام لكل عميل</span><div class="mstep"><button type="button" data-act="cap-step" data-d="-1" aria-label="أنقص">−</button><b>${fmt(Number(ledger.state.settings.globalCap || 0))} ريال</b><button type="button" data-act="cap-step" data-d="1" aria-label="زِد">+</button></div></div>` : ''}
       <div class="tag">مطفأ افتراضياً. يسري على كل عميل ليس له سقف خاص (يُحدَّد من «تعديل بيانات العميل»). عند تجاوزه يظهر تنبيه عند تسجيل الشراء. وإيقاف الآجل لعميل من قائمة ⋮ في حسابه.</div>`)}
     ${acc('wa', 'chat', 'الواتساب', (link.ok && link.state === 'linked' ? 'مربوط ✓ · ' : '') + wa.status, dsec('الربط') + waLinkHtml() + dsec('الرسائل') + wa.inner + dsec('التذكير الشهري') + rem.inner)}
-    ${acc('sync', 'save', 'المزامنة والنسخ الاحتياطي', sy.status + (drv.ok && drv.d && drv.d.linked ? (drv.d.state === 'error' || drv.d.failSince ? ' · Drive ⚠' : ' · Drive ✓') : ''), dsec('المزامنة مع السيرفر') + sy.inner + dsec('نسخة احتياطية') + `<div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
-      <input id="restoreFile" type="file" accept=".json,application/json" hidden>
+    ${acc('sync', 'save', 'المزامنة والنسخ الاحتياطي', sy.status + (drv.ok && drv.d && drv.d.linked ? (drv.d.state === 'error' || drv.d.failSince ? ' · Drive ⚠' : ' · Drive ✓') : ''), dsec('المزامنة مع السيرفر') + sy.inner + dsec('نسخة احتياطية') + `<button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button>
       <div class="tag">آخر نسخة: ${lastB}</div>
       <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + driveHtml())}
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
@@ -844,17 +843,6 @@ async function backup() {
   }
 }
 
-async function restoreFrom(file) {
-  try {
-    const obj = JSON.parse(await file.text());
-    if (!obj || obj.app !== 'daftar' || !Array.isArray(obj.ops)) throw new Error('bad');
-    const r = ledger.merge(obj.ops);
-    await flush();
-    toast(`✓ تمت إضافة ${r.added.length} عملية${r.rejected ? ` (رُفضت ${r.rejected})` : ''}. لم يُحذف شيء.`, 4500);
-    render();
-  } catch { toast('الملف ليس نسخة دفتر الأجل صحيحة'); }
-}
-
 async function toggleLock() {
   if (meta.lockEnabled) {
     if (!(await lock.unlockWithDevice(meta.credId))) { toast('لم يتم التحقق'); return; }
@@ -984,7 +972,6 @@ const ACTS = {
   'toggle-lock': () => toggleLock(),
   'toggle-owner': () => toggleOwner(),
   backup: () => backup(),
-  restore: () => document.getElementById('restoreFile')?.click(),
   'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
   acc: (el) => {
     const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render();
@@ -1197,7 +1184,6 @@ document.addEventListener('submit', (e) => {
 document.addEventListener('change', (e) => {
   const t = /** @type {HTMLInputElement} */ (e.target);
   if (t.id === 'shopNameIn' || t.id === 'shopPhoneIn') saveShop(t);
-  if (t.id === 'restoreFile' && t.files && t.files[0]) { restoreFrom(t.files[0]); t.value = ''; }
 });
 
 window.addEventListener('hashchange', () => { closeOv(); render(); });
