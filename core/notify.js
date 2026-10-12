@@ -3,7 +3,7 @@
 import { formatMoney, toLatinDigits } from './util.js';
 
 // عبارة العملية في الرسالة
-const KIND_LINE = { purchase: 'مشترياتك بالآجل', payment: 'تسديدك', return: 'مرتجعك' };
+const KIND_LINE = { purchase: ['مشترياتك بالآجل', '🛒'], payment: ['تسديدك', '✅'], return: ['مرتجعك', '↩️'] };
 const NB = '\u00A0'; // مسافة لا تنقسم: تفصل التاريخ عن الوقت بوضوح
 
 /**
@@ -68,19 +68,18 @@ export function waMessage(state, cid, lastTxn, nowTs = Date.now()) {
   const c = state.customers.get(cid);
   if (!c) return '';
   const w = waSettings(state.settings);
+  const head = w.shop ? [`🏪 *${w.shop}*`, ''] : [];
   /** @type {string[]} */
-  const lines = [];
-  if (w.shop) lines.push(w.shop);
-  if (w.last && lastTxn && /** @type {Record<string,string>} */ (KIND_LINE)[lastTxn.kind]) {
-    lines.push(`${/** @type {Record<string,string>} */ (KIND_LINE)[lastTxn.kind]} : ${formatMoney(lastTxn.amount)} ريال`);
-  }
+  const body = [];
+  const kind = /** @type {Record<string,string[]>} */ (KIND_LINE)[lastTxn ? lastTxn.kind : ''];
+  if (w.last && lastTxn && kind) body.push(`${kind[1]} ${kind[0]}`, `💰 *${formatMoney(lastTxn.amount)}* ريال`, '');
   if (w.bal) {
-    lines.push(c.balance > 0 ? `رصيدك الحالي : ${formatMoney(c.balance)} ريال`
-      : c.balance < 0 ? `لك عندنا : ${formatMoney(-c.balance)} ريال`
-        : 'حسابك مسدّد، لا يوجد مبلغ مستحق');
+    body.push(c.balance > 0 ? `📊 رصيدك الحالي : *${formatMoney(c.balance)}* ريال`
+      : c.balance < 0 ? `📊 لك عندنا : *${formatMoney(-c.balance)}* ريال`
+        : '📊 حسابك مسدّد، لا يوجد مبلغ مستحق');
   }
-  lines.push(waStamp(lastTxn ? lastTxn.ts : nowTs));
-  return lines.join('\n');
+  body.push(`🕐 ${waStamp(lastTxn ? lastTxn.ts : nowTs)}`);
+  return [...head, ...body].join('\n');
 }
 
 /**
@@ -102,7 +101,9 @@ export function waReminder(state, cid, nowTs = Date.now()) {
       : ['حسابكم مسدّد، لا يوجد مبلغ مستحق'];
   lines.push('شاكرين لكم تعاملكم معنا 🌷');
   const stamp = waStamp(nowTs);
-  return { text: [...(shop ? [shop] : []), ...lines, stamp].join('\n'), state: st, amount, shop, lines, stamp };
+  const icon = st === 'debt' ? '💰 ' : st === 'credit' ? '💰 ' : '✅ ';
+  const text = [...(shop ? [`🏪 *${shop}*`, ''] : []), icon + lines[0].replace(/: ([\d.,٠-٩]+) ريال/, ': *$1* ريال'), ...lines.slice(1), '', `🕐 ${stamp}`].join('\n');
+  return { text, state: st, amount, shop, lines, stamp };
 }
 
 /**
