@@ -668,12 +668,10 @@ function render() {
   }
   // نحفظ مكان التمرير عند إعادة رسم نفس الشاشة (حتى لا تقفز الصفحة للأعلى)، ونبدأ من الأعلى عند تغيّر الشاشة
   const key = `${name}/${arg || ''}`;
-  const screenChanged = key !== lastRenderKey;
   const keep = key === lastRenderKey ? ($v.querySelector('.body') || { scrollTop: 0 }).scrollTop : 0;
   lastRenderKey = key;
   $v.innerHTML = html;
   if (keep) { const b = $v.querySelector('.body'); if (b) b.scrollTop = keep; }
-  if (screenChanged && name === 'home') /** @type {HTMLInputElement | null} */ ($v.querySelector('#q'))?.focus(); // كيبورد الأرقام يظهر مباشرة عند دخول الرئيسية (قد يمنعه كروم أحياناً)
   if (name === 'settings') db.persistenceStatus().then((p) => {
     const el = document.getElementById('persistTag');
     if (el) el.textContent = 'التخزين الدائم: ' + ({ granted: 'مفعّل', denied: 'غير مفعّل (قد يمسح الجوال البيانات عند ضيق المساحة)', unsupported: 'غير مدعوم' }[p]);
