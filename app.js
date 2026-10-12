@@ -378,12 +378,13 @@ function acc(id, icon, title, status, inner) {
 const dsec = (/** @type {string} */ t) => `<div class="dsec">${t}</div>`;
 
 /** حالة ربط واتساب كما يراها السيرفر (يحدّثها الجسر) */
-const link = { state: 'unlinked', phone: /** @type {string | null} */ (null), req: /** @type {any} */ (null), qr: /** @type {string | null} */ (null), code: /** @type {string | null} */ (null), bridgeAlive: false, ok: false };
+const link = { state: 'unlinked', phone: /** @type {string | null} */ (null), req: /** @type {any} */ (null), qr: /** @type {string | null} */ (null), code: /** @type {string | null} */ (null), bridgeAlive: false, ok: false, err: "" };
 let linkTimer = 0;
 async function refreshLink() {
   if (!meta.syncOn || !meta.syncKey) { link.ok = false; return false; }
   const l = await linkStatus(SYNC_URL, meta.syncKey, (u, i) => fetch(u, i));
-  if (!l) { link.ok = false; return false; }
+  if (!l || 'error' in l) { link.ok = false; link.err = l && 'error' in l ? l.error : 'net'; return false; }
+  link.err = '';
   const before = JSON.stringify(link);
   Object.assign(link, { state: l.state, phone: l.phone, req: l.req, qr: l.qr, code: l.code, bridgeAlive: l.bridgeAlive, ok: true });
   return JSON.stringify(link) !== before;
@@ -399,6 +400,7 @@ function startLinkPoll() {
 }
 function waLinkHtml() {
   if (!meta.syncOn) return '<div class="tag">يحتاج تفعيل «المزامنة مع السيرفر» أولاً (في بطاقة المزامنة بالأسفل).</div>';
+  if (!link.ok && link.err) return `<div class="tag" style="color:var(--pay)">تعذّر التحقق من السيرفر (${esc(link.err === 'net' ? 'لا اتصال' : 'رمز ' + link.err)}).</div><button class="btn" data-act="link-retry">إعادة المحاولة</button>`;
   if (!link.ok) return '<div class="tag">جارٍ التحقق من حالة الربط...</div>';
   const stepsOf = (/** @type {string[]} */ a) => `<div class="lksteps">${a.map((t, i) => `<div><b>${i + 1}</b><span>${t}</span></div>`).join('')}</div>`;
   if (link.state === 'linked') {
@@ -965,6 +967,7 @@ const ACTS = {
     ui.linkAsked = Date.now();
     await refreshLink(); render(); startLinkPoll();
   },
+  'link-retry': async () => { link.err = ''; render(); await refreshLink(); render(); startLinkPoll(); },
   'link-cancel': () => { ui.linkAsked = 0; link.state = 'unlinked'; link.code = null; link.qr = null; link.req = null; render(); },
   'link-off': async () => {
     const ok = await linkRequest(SYNC_URL, meta.syncKey, { mode: 'unlink' }, (u, i) => fetch(u, i));

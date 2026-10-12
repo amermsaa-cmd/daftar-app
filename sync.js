@@ -163,8 +163,9 @@ export async function claimManual(baseUrl, key, tid, fetchFn) {
 export async function linkStatus(baseUrl, key, fetchFn) {
   try {
     const res = await fetchFn(`${baseUrl}/v1/wa/link`, { headers: { Authorization: `Bearer ${key.trim()}` } });
-    return res.ok ? await res.json() : null;
-  } catch { return null; }
+    if (res.ok) return await res.json();
+    return { error: String(res.status) };
+  } catch { return { error: 'net' }; }
 }
 
 /**
