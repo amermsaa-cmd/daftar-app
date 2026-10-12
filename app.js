@@ -218,18 +218,22 @@ function customerRows(list) {
   return list.map((c) => `<div class="card row"><a class="nm" href="#/record/${c.id}" style="flex:1;color:inherit;text-decoration:none"><b>${esc(c.name)}</b><small>رقم ${c.codeNo}</small></a>${balHtml(c)}<a class="pill open histbtn" href="#/customer/${c.id}">السجل</a></div>`).join('');
 }
 
-// آخر العمليات في الرئيسية (بدون أرصدة): كل صف يفتح حساب العميل
+// الرئيسية: آخر العملاء (اختصار للتسجيل) + آخر العمليات مطوية (بدون أرصدة، الصف يفتح حساب العميل)
 function recentOpsHtml() {
   const s = ledger.state;
   const list = [...s.txns.values()].filter((t) => !t.voided && t.kind !== 'opening' && s.customers.has(t.cid))
-    .sort((a, b) => b.ts - a.ts).slice(0, 12);
+    .sort((a, b) => b.ts - a.ts);
   if (!list.length) return '';
   const today = new Date().toDateString();
-  return `<div class="tag">آخر العمليات</div>` + list.map((t) => {
+  const seen = new Set();
+  for (const t of list) { if (seen.size < 4) seen.add(t.cid); }
+  const chips = `<div class="tag">آخر العملاء</div><div class="chips">${[...seen].map((cid) => { const nm = s.customers.get(cid).name; return `<a class="chip" href="#/record/${cid}"><span class="av">${esc([...nm][0] || '؟')}</span><span>${esc(nm)}</span></a>`; }).join('')}</div>`;
+  const rows = list.slice(0, 5).map((t) => {
     const d = new Date(t.ts);
     const when = (d.toDateString() === today ? 'اليوم ' : dayFmt.format(d) + ' ') + timeFmt.format(d);
     return `<a class="card row ops" href="#/customer/${t.cid}"><div class="nm"><b>${esc(s.customers.get(t.cid).name)}</b><small>${when}</small></div><span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span><span class="num">${fmt(t.amount)}</span></a>`;
   }).join('');
+  return `${chips}<details class="fold"><summary>آخر العمليات${ic('chev')}</summary><div class="stack">${rows}<a class="foldall" href="#/events">عرض الكل</a></div></details>`;
 }
 
 function resultsHtml(q) {
@@ -243,8 +247,7 @@ function resultsHtml(q) {
 }
 
 function viewHome() {
-  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="search" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="scanbtn" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button></div>
-    <div id="numpad" class="numpad">${['1', '2', '3', '4', '5', '⌫', '6', '7', '8', '9', '0'].map((k) => `<button type="button" data-act="np" data-k="${k}"${k === '⌫' ? ' class="del" aria-label="مسح"' : ''}>${k}</button>`).join('')}</div></div>`;
+  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="numeric" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="kbtog" data-act="kb" aria-label="تبديل لوحة المفاتيح">أ ب</button><button type="button" class="scanbtn" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button></div></div>`;
   const dw = driveWarnDays();
   const warn = dw ? `<a class="card" href="#/settings" style="display:block;border-color:var(--pay);color:inherit;text-decoration:none"><b style="color:var(--pay)">${ic('lock')} تعذّر حفظ نسخة Google Drive منذ ${dw === 1 ? 'يوم' : dw + ' أيام'}</b><div class="tag">افتح الإعدادات ثم المزامنة والنسخ الاحتياطي لإصلاح الربط.</div></a>` : '';
   const body = `<div class="body">${warn}<div id="results" class="stack">${resultsHtml('')}</div></div>`;
@@ -943,12 +946,14 @@ const ACTS = {
   'sheet-close': () => closeOv(),
   'toggle-all': () => { ui.cust.all = !ui.cust.all; render(); },
   share: (el) => shareStatement(/** @type {string} */ (el.dataset.cid)),
-  np: (el) => { // أرقام تحت خانة البحث (الكيبورد الرسمي يبقى للأسماء)
+  kb: () => { // تبديل كيبورد الأرقام / الأسماء
     const q = /** @type {HTMLInputElement | null} */ (document.getElementById('q'));
     if (!q) return;
-    const k = el.dataset.k;
-    q.value = k === '⌫' ? q.value.slice(0, -1) : q.value + k;
-    q.dispatchEvent(new Event('input', { bubbles: true }));
+    const txt = q.getAttribute('inputmode') === 'numeric';
+    q.setAttribute('inputmode', txt ? 'search' : 'numeric');
+    const b = /** @type {HTMLElement | null} */ (document.querySelector('.kbtog'));
+    if (b) b.textContent = txt ? '123' : 'أ ب';
+    q.blur(); q.focus();
   },
   print: (el) => printStatement(/** @type {string} */ (el.dataset.cid)),
   edit: async (el) => { const cid = /** @type {string} */ (el.dataset.cid); if (await requireOwner()) { ui.editOk = cid; location.hash = `#/edit/${cid}`; } },
@@ -1163,16 +1168,13 @@ document.addEventListener('input', (e) => {
   if (t.id === 'linkPhone') ui.linkPhone = toLatin(t.value);
   if (t.id === 'waText') { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
+  if (t.id === 'q' && t.getAttribute('inputmode') === 'numeric') t.value = t.value.replace(/\D/g, ''); // وضع الأرقام: أرقام فقط
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }
   if (t.id === 'dq') { ui.debtQ = t.value; const pos = t.selectionStart; render(); const n = /** @type {HTMLInputElement | null} */ (document.getElementById('dq')); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
 });
 
-// صف الأرقام: يظهر مع التركيز على خانة البحث، والضغط عليه لا يُغلق الكيبورد
-// الإخفاء متأخر قليلاً: لو اختفى الصف فوراً عند أول لمسة لنتيجة البحث، ينزاح السطر وتضيع اللمسة (تحتاج ضغطتين)
-let npTimer = 0;
-document.addEventListener('focusin', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') { clearTimeout(npTimer); document.getElementById('numpad')?.classList.add('on'); } });
-document.addEventListener('focusout', (e) => { if (/** @type {HTMLElement} */ (e.target).id === 'q') { clearTimeout(npTimer); npTimer = window.setTimeout(() => document.getElementById('numpad')?.classList.remove('on'), 450); } });
-document.addEventListener('pointerdown', (e) => { if (/** @type {HTMLElement} */ (e.target).closest?.('#numpad')) e.preventDefault(); });
+// الضغط على زر تبديل الكيبورد لا يسحب التركيز من خانة البحث
+document.addEventListener('pointerdown', (e) => { if (/** @type {HTMLElement} */ (e.target).closest?.('.kbtog')) e.preventDefault(); });
 
 document.addEventListener('submit', (e) => {
   e.preventDefault();
