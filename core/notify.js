@@ -122,3 +122,61 @@ export function waSkipReason(state, txn) {
   if (!waSettings(state.settings).auto) return 'auto-off';
   return null;
 }
+
+// ===== التذكير الشهري التلقائي (الجسر يرسله، والتطبيق يضبطه ويعرض معاينته) =====
+
+/**
+ * إعدادات التذكير الشهري من إعدادات الدفتر. مطفأ افتراضياً.
+ * @param {Record<string, any>} settings
+ */
+export function remSettings(settings) {
+  const s = settings || {};
+  const int = (/** @type {any} */ v, /** @type {number} */ d, /** @type {number} */ lo, /** @type {number} */ hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : d);
+  return {
+    on: s['rem.on'] === true,
+    day: int(s['rem.day'], 25, 1, 28),
+    hour: int(s['rem.hour'], 10, 0, 23),
+    min: int(s['rem.min'], 5000, 0, 100000000), // أقل رصيد بالهللة (50 ريال)
+    now: Number.isInteger(s['rem.now']) ? /** @type {number} */ (s['rem.now']) : 0, // «أرسل الآن»: وقت الضغط
+  };
+}
+
+/** @param {number} ts تاريخ بتوقيت الرياض: {y, m, d, h} */
+export function riyadhParts(ts) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false })
+    .formatToParts(new Date(ts)).map((x) => [x.type, x.value]));
+  return { y: +p.year, m: +p.month, d: +p.day, h: +p.hour % 24 };
+}
+
+/**
+ * هل حان وقت دفعة تذكير؟ يرجع مفتاح الدفعة (يمنع التكرار) أو null.
+ * شهرياً: في يوم الشهر المحدد بعد الساعة المحددة (طوال اليوم). يدوياً: خلال 6 ساعات من «أرسل الآن».
+ * @param {Record<string, any>} settings @param {number} nowTs
+ */
+export function remDue(settings, nowTs) {
+  const c = remSettings(settings);
+  if (c.now && nowTs - c.now >= 0 && nowTs - c.now < 6 * 3600 * 1000) return `now${c.now.toString(36)}`;
+  if (!c.on) return null;
+  const t = riyadhParts(nowTs);
+  if (t.d === c.day && t.h >= c.hour) return `${t.y}${String(t.m).padStart(2, '0')}`;
+  return null;
+}
+
+/** معرّف إشعار التذكير لعميل في دفعة (لا يتكرر لنفس العميل في نفس الدفعة). */
+export const remOpId = (/** @type {string} */ key, /** @type {string} */ cid) => `rem-${key}-${cid}`;
+
+/**
+ * من سيصله التذكير: عليه رصيد لا يقل عن الحد، وله جوال، غير مؤرشف، ولم يُطفأ له الإشعار.
+ * @param {import('./ops.js').State} state @param {Record<string, any>} [settings]
+ * @returns {{ cid: string, name: string, phone: string, balance: number }[]}
+ */
+export function remPlan(state, settings = state.settings) {
+  const c = remSettings(settings);
+  const out = [];
+  for (const x of state.customers.values()) {
+    if (x.archived || x.waOff || !waNumber(x.phone)) continue;
+    if (x.balance <= 0 || x.balance < c.min) continue;
+    out.push({ cid: x.id, name: x.name, phone: /** @type {string} */ (x.phone), balance: x.balance });
+  }
+  return out.sort((a, b) => b.balance - a.balance);
+}

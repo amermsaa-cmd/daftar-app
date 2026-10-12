@@ -259,3 +259,12 @@ button.card{font:inherit;color:inherit}
 .gobtn{display:flex;align-items:center;justify-content:center;gap:10px;background:#25d366;color:#fff;border:0;border-radius:16px;padding:15px;font:inherit;font-size:17px;font-weight:800;cursor:pointer;box-shadow:0 6px 16px rgba(37,211,102,.35)}
 .gobtn .ic{stroke:#fff;width:22px;height:22px}
 .nocancel{background:none;border:0;color:var(--muted);font:inherit;font-size:15px;padding:6px;cursor:pointer}
+
+.mset{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.mstep{display:flex;align-items:center;gap:10px}.mstep b{min-width:74px;text-align:center}
+.mstep button{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--txt);font-size:20px;cursor:pointer;touch-action:manipulation}
+.mprev{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.mbig{display:flex;align-items:baseline;gap:8px}.mbig b{font-size:34px;color:var(--pay)}
+.mlist>div{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
+.mlast{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}.mlast .ic{width:16px;height:16px;stroke:var(--buy)}
+.btn[disabled]{opacity:.45}

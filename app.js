@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, waMessage as coreWaMessage, waReminder,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, waMessage as coreWaMessage, waReminder,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -18,7 +18,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '' };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -63,11 +63,12 @@ function waMessage(cid) {
   return coreWaMessage(s, cid, last || null);
 }
 /** حالة الجسر الآن (يُحدَّث بعد كل مزامنة وقبل قرار الإرسال) */
-const bridge = { alive: false, at: 0 };
+const bridge = { alive: false, at: 0, /** @type {{op: string, status: string, at: number}[]} */ items: [] };
 async function refreshBridge() {
   if (!meta.syncOn || !meta.syncKey) { bridge.alive = false; return null; }
   const st = await Promise.race([notifyStatus(SYNC_URL, meta.syncKey, (u, i) => fetch(u, i)), new Promise((r) => setTimeout(() => r(null), 2500))]);
   bridge.alive = !!(st && st.bridge && st.bridge.alive); bridge.at = Date.now();
+  if (st && Array.isArray(st.items)) bridge.items = st.items;
   return st;
 }
 function waSheet(cid, tid = '') {
@@ -409,6 +410,42 @@ function shopCardHtml() {
   return acc('shop', 'home', 'بيانات البقالة', sh.name ? esc(sh.name) : 'لم يُدخل بعد', inner);
 }
 
+function remCardHtml() {
+  const r = remSettings(ledger.state.settings);
+  const plan = remPlan(ledger.state);
+  const total = plan.reduce((a, p) => a + p.balance, 0);
+  const h12 = (r.hour % 12 || 12) + ':00 ' + (r.hour < 12 ? 'ص' : 'م');
+  const step = (what, label, val) => `<div class="mset"><span>${label}</span><div class="mstep"><button type="button" data-act="rem-step" data-k="${what}" data-d="-1" aria-label="أنقص">−</button><b>${val}</b><button type="button" data-act="rem-step" data-k="${what}" data-d="1" aria-label="زِد">+</button></div></div>`;
+  // آخر دفعة تذكير من سجل الجسر (rem-<مفتاح الدفعة>-<عميل>)
+  const items = bridge.items.filter((x) => x.op.startsWith('rem-'));
+  let lastTxt = '';
+  if (items.length) {
+    const keyOf = (/** @type {string} */ op) => op.slice(4, op.lastIndexOf('-'));
+    const newest = items.reduce((a, b) => (b.at > a.at ? b : a));
+    const grp = items.filter((x) => keyOf(x.op) === keyOf(newest.op));
+    const ok = grp.filter((x) => x.status === 'sent').length;
+    const bad = grp.filter((x) => x.status === 'failed').length;
+    lastTxt = `آخر تذكير: ${fullFmt.format(newest.at)} · أُرسل ${ok}${bad ? ` وفشل ${bad}` : ''}`;
+  }
+  const t = riyadhParts(Date.now());
+  const monthKey = `${t.y}${String(t.m).padStart(2, '0')}`;
+  const missed = r.on && t.d > r.day && !items.some((x) => x.op.startsWith(`rem-${monthKey}-`));
+  const inner = `<div class="sw"><span>إرسال تذكير بالرصيد تلقائياً كل شهر</span>${tgl('toggle-rem', r.on)}</div>
+    ${r.on || ui.remOpen ? `<div class="stack">
+      ${step('day', 'يوم الشهر', String(r.day))}
+      ${step('hour', 'الساعة', h12)}
+      ${step('min', 'لا ترسل لمن رصيده أقل من', fmt(r.min) + ' ريال')}
+      <div class="mset"><span>الفاصل بين الرسائل</span><b class="tag">30 ثانية (حماية الرقم)</b></div>
+      <div class="mprev"><div class="tag">معاينة: يوم ${r.day} الساعة ${h12}</div>
+        <div class="mbig"><b>${plan.length}</b><span>${plan.length === 1 ? 'عميل سيصله التذكير' : 'عميلاً سيصلهم التذكير'}${plan.length ? ` · مجموع ${fmt(total)} ريال` : ''}</span></div>
+        <div class="mlist">${plan.slice(0, 3).map((p) => `<div><span>${esc(p.name)}</span><b class="owe">${fmt(p.balance)}</b></div>`).join('')}${plan.length > 3 ? `<div class="tag">... و${plan.length - 3} آخرين · المدة التقريبية ${Math.max(1, Math.round(plan.length / 2))} دقيقة</div>` : ''}</div></div>
+      ${lastTxt ? `<div class="mlast">${ic('check')}<span>${lastTxt}</span></div>` : ''}
+      ${missed ? '<div class="tag" style="color:var(--pay)">لم يُرسل تذكير هذا الشهر (فات موعده). تأكد أن الجسر شغّال، أو أرسله الآن.</div>' : ''}
+      <div class="tag">يحتاج الجسر شغّالاً. لو كان متوقفاً في ذلك اليوم يرسل عند عودته، وإن فات اليوم يظهر لك تنبيه هنا. لا يصل التذكير للمسدّدين ولا لمن له رصيد عندنا ولا لمن أطفأت له الإشعار. لا تتكرر الرسالة للعميل في نفس الشهر.</div>
+      <button class="btn" data-act="rem-now" ${plan.length ? '' : 'disabled'}>${ic('chat')}${ui.remConfirm ? `اضغط للتأكيد: إرسال لـ ${plan.length} عميل الآن` : 'إرسال التذكير الآن للجميع (مرة واحدة)'}</button></div>` : ''}`;
+  return acc('rem', 'chat', 'التذكير الشهري', r.on ? `يوم ${r.day} من كل شهر` : 'مطفأ', inner);
+}
+
 function viewSettings() {
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
@@ -429,6 +466,7 @@ function viewSettings() {
       <div class="tag">مطفأ افتراضياً. كل عكس أو تعديل يُسجَّل في الأحداث حتى لو كان الرمز مطفأً. احفظ الرمز جيداً.</div>`)}
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وأرشفة)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     ${waCardHtml()}
+    ${remCardHtml()}
     ${syncCardHtml()}
     ${acc('backup', 'share', 'النسخة الاحتياطية', meta.lastBackupAt ? 'آخر نسخة ' + fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ بعد', `<div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
       <input id="restoreFile" type="file" accept=".json,application/json" hidden>
@@ -804,13 +842,32 @@ const ACTS = {
   'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
   acc: (el) => {
     const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render();
-    if (id === 'wa' && ui.accOpen[id]) refreshBridge().then(() => render()); // نتحقق من الجسر لحظة فتح البطاقة
+    if ((id === 'wa' || id === 'rem') && ui.accOpen[id]) refreshBridge().then(() => render()); // نتحقق من الجسر لحظة فتح البطاقة
   },
   'toggle-wa': () => setWa('wa.on', !waCfg().on),
   'toggle-wa-auto': () => setWa('wa.auto', !waCfg().auto),
   'toggle-wa-bal': () => setWa('wa.bal', !waCfg().bal),
   'toggle-wa-last': () => setWa('wa.last', !waCfg().last),
   'wa-open': (el) => { document.querySelector('.savedtoast')?.remove(); waSheet(/** @type {string} */ (el.dataset.cid), el.dataset.tid || ''); },
+  'toggle-rem': () => { ui.remConfirm = false; return setWa('rem.on', !remSettings(ledger.state.settings).on); },
+  'rem-step': (el) => {
+    const r = remSettings(ledger.state.settings);
+    const d = Number(el.dataset.d);
+    ui.remConfirm = false;
+    if (el.dataset.k === 'day') return setWa('rem.day', Math.min(28, Math.max(1, r.day + d)));
+    if (el.dataset.k === 'hour') return setWa('rem.hour', (r.hour + d + 24) % 24);
+    return setWa('rem.min', Math.max(0, r.min + d * 1000)); // ±10 ريال
+  },
+  'rem-now': async () => {
+    if (!ui.remConfirm) { ui.remConfirm = true; render(); window.setTimeout(() => { if (ui.remConfirm) { ui.remConfirm = false; render(); } }, 6000); return; }
+    ui.remConfirm = false;
+    if (!meta.syncOn) { toast('يحتاج تفعيل المزامنة مع السيرفر'); render(); return; }
+    await refreshBridge();
+    if (!bridge.alive) { toast('الجسر غير متصل الآن، لا يمكن الإرسال'); render(); return; }
+    await setWa('rem.now', Date.now());
+    schedSync(100);
+    toast('✓ بدأ إرسال التذكير. يرسله الجسر تدريجياً.', 4500);
+  },
   'wa-edit': (el) => {
     const t = /** @type {HTMLTextAreaElement} */ (document.getElementById('waText'));
     const r = document.getElementById('waRc');
