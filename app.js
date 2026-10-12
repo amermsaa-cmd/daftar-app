@@ -448,7 +448,7 @@ function driveHtml() {
       : `<div class="lkok">${ic('check')}<div><b>مربوط · <span dir="ltr">${esc(d.email || '')}</span></b><div class="tag">${d.lastOk ? 'آخر نسخة: ' + fullFmt.format(d.lastOk) : 'جارٍ تجهيز أول نسخة...'}</div></div></div>`;
   const off = ui.drvConfirm
     ? `<div class="tag">يتوقف حفظ النسخ الجديدة. تبقى النسخ الحالية في Drive. هل تريد الفصل؟</div><div class="two"><button class="btn" data-act="drive-unlink-no">إلغاء</button><button class="btn" data-act="drive-unlink-yes">نعم، افصل</button></div>`
-    : `<div class="two"><button class="btn" data-act="drive-now" ${drv.busy ? 'disabled' : ''}>${drv.busy ? 'جارٍ النسخ...' : 'انسخ الآن'}</button><button class="btn" data-act="drive-unlink">فصل الربط</button></div>`;
+    : `<div class="two"><button class="btn" data-act="drive-now" ${drv.busy ? 'disabled' : ''}>${drv.busy ? '<span class="spin" aria-hidden="true"></span>جارٍ النسخ...' : 'انسخ الآن'}</button><button class="btn" data-act="drive-unlink">فصل الربط</button></div>`;
   return `${head}<div class="tag">نسخة جديدة كل يوم، تُحفظ آخر ${d.keepDays || 30} يوماً ثم تُحذف الأقدم تلقائياً.</div>${off}`;
 }
 
@@ -635,6 +635,7 @@ function route() {
   return [name || 'home', arg];
 }
 
+let lastRenderKey = '';
 function render() {
   if (!ledger) return;
   if (locked) { $v.innerHTML = viewLock(); return; }
@@ -651,7 +652,12 @@ function render() {
     case 'events': html = viewEvents(); break;
     default: html = viewHome();
   }
+  // نحفظ مكان التمرير عند إعادة رسم نفس الشاشة (حتى لا تقفز الصفحة للأعلى)، ونبدأ من الأعلى عند تغيّر الشاشة
+  const key = `${name}/${arg || ''}`;
+  const keep = key === lastRenderKey ? ($v.querySelector('.body') || { scrollTop: 0 }).scrollTop : 0;
+  lastRenderKey = key;
   $v.innerHTML = html;
+  if (keep) { const b = $v.querySelector('.body'); if (b) b.scrollTop = keep; }
   if (name === 'settings') db.persistenceStatus().then((p) => {
     const el = document.getElementById('persistTag');
     if (el) el.textContent = 'التخزين الدائم: ' + ({ granted: 'مفعّل', denied: 'غير مفعّل (قد يمسح الجوال البيانات عند ضيق المساحة)', unsupported: 'غير مدعوم' }[p]);
