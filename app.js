@@ -7,7 +7,7 @@ import {
 import * as db from './db.js';
 import * as lock from './lock.js';
 import { scanSupported, scanOnce } from './scan.js';
-import { SyncClient, verifyKey, SYNC_URL, notifyStatus, claimManual, linkStatus, linkRequest } from './sync.js';
+import { SyncClient, verifyKey, SYNC_URL, notifyStatus, claimManual, linkStatus, linkRequest, driveCall } from './sync.js';
 import qrcode from './vendor/qrcode.js';
 
 const VERSION = '0.2.0';
@@ -19,7 +19,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0 };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -181,11 +181,13 @@ function startSync() {
   });
 }
 
+let drvAt = 0;
 async function runSync() {
   if (!syncClient || locked) return;
   const st = await syncClient.sync();
   if (st === 'idle') { meta.syncLastAt = syncClient.lastSyncAt; await db.setMeta('syncLastAt', meta.syncLastAt); }
   if (location.hash.startsWith('#/settings')) await refreshBridge();
+  if (st === 'idle' && Date.now() - drvAt > 600000) { drvAt = Date.now(); if (await refreshDrive() && (location.hash.startsWith('#/home') || location.hash === '#/')) render(); }
   if (location.hash.startsWith('#/settings') && !ui.syncSetup) render();
   return st;
 }
@@ -243,7 +245,9 @@ function resultsHtml(q) {
 function viewHome() {
   const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="search" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="scanbtn" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button></div>
     <div id="numpad" class="numpad">${['1', '2', '3', '4', '5', '⌫', '6', '7', '8', '9', '0'].map((k) => `<button type="button" data-act="np" data-k="${k}"${k === '⌫' ? ' class="del" aria-label="مسح"' : ''}>${k}</button>`).join('')}</div></div>`;
-  const body = `<div class="body"><div id="results" class="stack">${resultsHtml('')}</div></div>`;
+  const dw = driveWarnDays();
+  const warn = dw ? `<a class="card" href="#/settings" style="display:block;border-color:var(--pay);color:inherit;text-decoration:none"><b style="color:var(--pay)">${ic('lock')} تعذّر حفظ نسخة Google Drive منذ ${dw === 1 ? 'يوم' : dw + ' أيام'}</b><div class="tag">افتح الإعدادات ثم المزامنة والنسخ الاحتياطي لإصلاح الربط.</div></a>` : '';
+  const body = `<div class="body">${warn}<div id="results" class="stack">${resultsHtml('')}</div></div>`;
   return page({ title: 'الرئيسية', body, nav: 'home', sub });
 }
 
@@ -398,6 +402,55 @@ function startLinkPoll() {
     if (await refreshLink() && !typing) render();
   }, 3000);
 }
+// ===== نسخ Google Drive (يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة) =====
+const drv = { ok: false, err: '', busy: false, /** @type {any} */ d: null };
+async function refreshDrive() {
+  if (!meta.syncOn || !meta.syncKey) { drv.ok = false; drv.d = null; return false; }
+  const r = await driveCall(SYNC_URL, meta.syncKey, 'GET', 'status', (u, i) => fetch(u, i));
+  const before = JSON.stringify(drv);
+  if (r.error) { drv.ok = false; drv.err = r.error; } else { drv.ok = true; drv.err = ''; drv.d = r; }
+  return JSON.stringify(drv) !== before;
+}
+let drvTimer = 0;
+/** بعد فتح نافذة Google: نتابع الحالة كل 3 ثوانٍ (حتى 5 دقائق) لنعرض «تم الربط» فور عودة صاحب البقالة */
+function startDrivePoll() {
+  if (drvTimer) return;
+  drvTimer = window.setInterval(async () => {
+    const waiting = ui.drvAsked > 0 && Date.now() - ui.drvAsked < 300000;
+    if (!waiting || route()[0] !== 'settings' || document.hidden) { clearInterval(drvTimer); drvTimer = 0; if (!waiting) ui.drvAsked = 0; return; }
+    if (await refreshDrive() && drv.d && drv.d.linked) { ui.drvAsked = 0; render(); toast('✓ تم ربط Google Drive'); }
+  }, 3000);
+}
+/** تنبيه الصفحة الرئيسية: فشل حفظ النسخة يوماً كاملاً أو أكثر */
+function driveWarnDays() {
+  const d = drv.d;
+  if (!drv.ok || !d || !d.linked || !d.failSince) return 0;
+  const days = Math.floor((Date.now() - d.failSince) / 86400000);
+  return days >= 1 ? days : 0;
+}
+function driveHtml() {
+  if (!meta.syncOn) return '<div class="tag">يحتاج تفعيل «المزامنة مع السيرفر» أولاً.</div>';
+  if (!drv.ok && drv.err) return `<div class="tag" style="color:var(--pay)">تعذّر التحقق من السيرفر (${esc(drv.err === 'net' ? 'لا اتصال' : 'رمز ' + drv.err)}).</div><button class="btn" data-act="drive-retry">إعادة المحاولة</button>`;
+  if (!drv.ok) return '<div class="tag">جارٍ التحقق...</div>';
+  const d = drv.d;
+  if (!d.configured) return '<div class="tag">نسخ Google Drive غير مفعّل على السيرفر بعد.</div>';
+  if (ui.drvAsked > 0 && Date.now() - ui.drvAsked < 300000 && !d.linked) return '<div class="tag center">أكمل الموافقة في نافذة Google، ثم ارجع هنا...</div><button class="btn" data-act="drive-cancel">إلغاء</button>';
+  const btn = (/** @type {string} */ act, /** @type {string} */ label) => `<button class="btn main" data-act="${act}">${ic('save')}${label}</button>`;
+  if (!d.linked) {
+    return `<div class="tag">يحفظ السيرفر نسخة من دفترك في Google Drive الخاص بك تلقائياً. يرى مجلد «دفتر الأجل» فقط ولا يرى بقية ملفاتك.</div>${btn('drive-link', 'ربط Google Drive')}`;
+  }
+  const bad = d.failSince > 0;
+  const head = d.state === 'error'
+    ? `<div class="lkok" style="border-color:var(--pay)">${ic('lock')}<div><b style="color:var(--pay)">انتهى ربط Google Drive</b><div class="tag">أعد الربط لتستمر النسخ.</div></div></div>${btn('drive-link', 'إعادة الربط')}`
+    : bad
+      ? `<div class="lkok" style="border-color:var(--pay)">${ic('lock')}<div><b style="color:var(--pay)">تعذّر حفظ النسخة منذ ${fullFmt.format(d.failSince)}</b><div class="tag">سنعيد المحاولة تلقائياً. إن استمر الفشل أعد الربط.</div></div></div>`
+      : `<div class="lkok">${ic('check')}<div><b>مربوط · <span dir="ltr">${esc(d.email || '')}</span></b><div class="tag">${d.lastOk ? 'آخر نسخة: ' + fullFmt.format(d.lastOk) : 'جارٍ تجهيز أول نسخة...'}</div></div></div>`;
+  const off = ui.drvConfirm
+    ? `<div class="tag">يتوقف حفظ النسخ الجديدة. تبقى النسخ الحالية في Drive. هل تريد الفصل؟</div><div class="two"><button class="btn" data-act="drive-unlink-no">إلغاء</button><button class="btn" data-act="drive-unlink-yes">نعم، افصل</button></div>`
+    : `<div class="two"><button class="btn" data-act="drive-now" ${drv.busy ? 'disabled' : ''}>${drv.busy ? 'جارٍ النسخ...' : 'انسخ الآن'}</button><button class="btn" data-act="drive-unlink">فصل الربط</button></div>`;
+  return `${head}<div class="tag">نسخة جديدة كل يوم، تُحفظ آخر ${d.keepDays || 30} يوماً ثم تُحذف الأقدم تلقائياً.</div>${off}`;
+}
+
 function waLinkHtml() {
   if (!meta.syncOn) return '<div class="tag">يحتاج تفعيل «المزامنة مع السيرفر» أولاً (في بطاقة المزامنة بالأسفل).</div>';
   if (!link.ok && link.err) return `<div class="tag" style="color:var(--pay)">تعذّر التحقق من السيرفر (${esc(link.err === 'net' ? 'لا اتصال' : 'رمز ' + link.err)}).</div><button class="btn" data-act="link-retry">إعادة المحاولة</button>`;
@@ -535,10 +588,10 @@ function viewSettings() {
       ${capOn ? `<div class="mset"><span>السقف العام لكل عميل</span><div class="mstep"><button type="button" data-act="cap-step" data-d="-1" aria-label="أنقص">−</button><b>${fmt(Number(ledger.state.settings.globalCap || 0))} ريال</b><button type="button" data-act="cap-step" data-d="1" aria-label="زِد">+</button></div></div>` : ''}
       <div class="tag">مطفأ افتراضياً. يسري على كل عميل ليس له سقف خاص (يُحدَّد من «تعديل بيانات العميل»). عند تجاوزه يظهر تنبيه عند تسجيل الشراء. وإيقاف الآجل لعميل من قائمة ⋮ في حسابه.</div>`)}
     ${acc('wa', 'chat', 'الواتساب', (link.ok && link.state === 'linked' ? 'مربوط ✓ · ' : '') + wa.status, dsec('الربط') + waLinkHtml() + dsec('الرسائل') + wa.inner + dsec('التذكير الشهري') + rem.inner)}
-    ${acc('sync', 'save', 'المزامنة والنسخ الاحتياطي', sy.status, dsec('المزامنة مع السيرفر') + sy.inner + dsec('نسخة احتياطية') + `<div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
+    ${acc('sync', 'save', 'المزامنة والنسخ الاحتياطي', sy.status + (drv.ok && drv.d && drv.d.linked ? (drv.d.state === 'error' || drv.d.failSince ? ' · Drive ⚠' : ' · Drive ✓') : ''), dsec('المزامنة مع السيرفر') + sy.inner + dsec('نسخة احتياطية') + `<div class="two"><button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button><button class="btn" data-act="restore">${ic('save')}استرجاع</button></div>
       <input id="restoreFile" type="file" accept=".json,application/json" hidden>
       <div class="tag">آخر نسخة: ${lastB}</div>
-      <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + '<div class="tag">قريباً: نسخة Google Drive يرفعها السيرفر تلقائياً إلى حساب صاحب البقالة.</div>')}
+      <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + driveHtml())}
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
   return page({ title: 'الإعدادات', body, sub, nav: 'settings' });
@@ -929,6 +982,7 @@ const ACTS = {
   acc: (el) => {
     const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render();
     if ((id === 'wa' || id === 'rem') && ui.accOpen[id]) refreshBridge().then(() => render());
+    if (id === 'sync' && ui.accOpen[id]) refreshDrive().then(() => render());
     if (id === 'wa' && ui.accOpen[id]) { refreshLink().then(() => render()); startLinkPoll(); } // نتحقق من الجسر لحظة فتح البطاقة
   },
   'toggle-wa': () => setWa('wa.on', !waCfg().on),
@@ -966,6 +1020,28 @@ const ACTS = {
     if (!ok) { toast('تعذّر إرسال الطلب، تحقق من الاتصال'); return; }
     ui.linkAsked = Date.now();
     await refreshLink(); render(); startLinkPoll();
+  },
+  'drive-retry': async () => { drv.err = ''; render(); await refreshDrive(); render(); },
+  'drive-link': async () => {
+    const r = await driveCall(SYNC_URL, meta.syncKey, 'POST', 'start', (u, i) => fetch(u, i));
+    if (!r || !r.url) { toast(r && r.error === 'not-configured' ? 'نسخ Drive غير مفعّل على السيرفر بعد' : 'تعذّر بدء الربط، تحقق من الاتصال'); return; }
+    ui.drvAsked = Date.now(); render(); startDrivePoll();
+    window.open(r.url, '_blank');
+  },
+  'drive-cancel': () => { ui.drvAsked = 0; render(); },
+  'drive-now': async () => {
+    drv.busy = true; render();
+    const r = await driveCall(SYNC_URL, meta.syncKey, 'POST', 'now', (u, i) => fetch(u, i));
+    drv.busy = false;
+    if (r && r.status) { drv.ok = true; drv.d = r.status; }
+    render(); toast(r && r.ok ? '✓ حُفظت نسخة في Google Drive' : 'تعذّر حفظ النسخة الآن');
+  },
+  'drive-unlink': () => { ui.drvConfirm = true; render(); },
+  'drive-unlink-no': () => { ui.drvConfirm = false; render(); },
+  'drive-unlink-yes': async () => {
+    ui.drvConfirm = false;
+    const r = await driveCall(SYNC_URL, meta.syncKey, 'POST', 'unlink', (u, i) => fetch(u, i));
+    await refreshDrive(); render(); toast(r && !r.error ? 'تم فصل ربط Google Drive' : 'تعذّر الفصل');
   },
   'link-retry': async () => { link.err = ''; render(); await refreshLink(); render(); startLinkPoll(); },
   'link-cancel': () => { ui.linkAsked = 0; link.state = 'unlinked'; link.code = null; link.qr = null; link.req = null; render(); },

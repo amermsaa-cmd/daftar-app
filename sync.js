@@ -179,3 +179,16 @@ export async function linkRequest(baseUrl, key, body, fetchFn) {
   } catch { return false; }
 }
 
+
+/**
+ * نسخ Google Drive: استدعاء لسيرفر المزامنة. يرجع JSON أو {error}.
+ * @param {string} baseUrl @param {string} key @param {'GET'|'POST'} method @param {string} path @param {typeof fetch} fetchFn
+ * @returns {Promise<any>}
+ */
+export async function driveCall(baseUrl, key, method, path, fetchFn) {
+  try {
+    const res = await fetchFn(`${baseUrl}/v1/drive/${path}`, { method, headers: { Authorization: `Bearer ${key.trim()}` } });
+    const j = await res.json().catch(() => ({}));
+    return res.ok ? j : { error: j.error || String(res.status) };
+  } catch { return { error: 'net' }; }
+}
