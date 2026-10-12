@@ -225,15 +225,12 @@ function recentOpsHtml() {
     .sort((a, b) => b.ts - a.ts);
   if (!list.length) return '';
   const today = new Date().toDateString();
-  const seen = new Set();
-  for (const t of list) { if (seen.size < 4) seen.add(t.cid); }
-  const chips = `<div class="tag">آخر العملاء</div><div class="chips">${[...seen].map((cid) => `<a class="chip" href="#/record/${cid}">${esc(s.customers.get(cid).name)}</a>`).join('')}</div>`;
   const rows = list.slice(0, 5).map((t) => {
     const d = new Date(t.ts);
     const when = (d.toDateString() === today ? 'اليوم ' : dayFmt.format(d) + ' ') + timeFmt.format(d);
     return `<a class="card row ops" href="#/customer/${t.cid}"><div class="nm"><b>${esc(s.customers.get(t.cid).name)}</b><small>${when}</small></div><span class="pill ${PILL[t.kind]}">${KIND[t.kind]}</span><span class="num">${fmt(t.amount)}</span></a>`;
   }).join('');
-  return `${chips}<details class="fold"><summary>آخر العمليات${ic('chev')}</summary><div class="stack">${rows}<a class="foldall" href="#/events">عرض الكل</a></div></details>`;
+  return `<details class="fold"><summary>آخر العمليات${ic('chev')}</summary><div class="stack">${rows}<a class="foldall" href="#/events">عرض الكل</a></div></details>`;
 }
 
 function resultsHtml(q) {
@@ -246,12 +243,27 @@ function resultsHtml(q) {
   return customerRows(list);
 }
 
+// آخر العملاء (حتى 20) داخل القسم الأسود: 12 ظاهرة والباقي خلف «المزيد»
+const CL_SHOW = 12;
+function recentCustomersHtml() {
+  const s = ledger.state;
+  const ids = [];
+  for (const t of [...s.txns.values()].filter((x) => !x.voided && x.kind !== 'opening' && s.customers.has(x.cid)).sort((x, y) => y.ts - x.ts)) {
+    if (!ids.includes(t.cid)) ids.push(t.cid);
+    if (ids.length >= 20) break;
+  }
+  if (!ids.length) return '';
+  const pills = ids.map((cid, i) => `<a class="pill-c${i >= CL_SHOW ? ' x' : ''}" href="#/record/${cid}">${esc(s.customers.get(cid).name)}</a>`).join('');
+  const more = ids.length > CL_SHOW ? `<button type="button" class="moreb" data-act="more-cl" data-n="${ids.length - CL_SHOW}">المزيد (${ids.length - CL_SHOW}) ▾</button>` : '';
+  return `<div class="cl">آخر العملاء</div><div class="pills">${pills}</div>${more}`;
+}
+
 function viewHome() {
-  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="numeric" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="kbtog" data-act="kb" aria-label="تبديل لوحة المفاتيح">أ ب</button><button type="button" class="scanbtn" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button></div></div>`;
+  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="numeric" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="kbtog" data-act="kb" aria-label="تبديل لوحة المفاتيح">أ ب</button></div>${recentCustomersHtml()}</div>`;
   const dw = driveWarnDays();
   const warn = dw ? `<a class="card" href="#/settings" style="display:block;border-color:var(--pay);color:inherit;text-decoration:none"><b style="color:var(--pay)">${ic('lock')} تعذّر حفظ نسخة Google Drive منذ ${dw === 1 ? 'يوم' : dw + ' أيام'}</b><div class="tag">افتح الإعدادات ثم المزامنة والنسخ الاحتياطي لإصلاح الربط.</div></a>` : '';
   const body = `<div class="body">${warn}<div id="results" class="stack">${resultsHtml('')}</div></div>`;
-  return page({ title: 'الرئيسية', body, nav: 'home', sub });
+  return page({ title: 'الرئيسية', body, nav: 'home', sub, extra: `<button type="button" class="topscan" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button>` });
 }
 
 function viewRecord(cid) {
@@ -946,6 +958,12 @@ const ACTS = {
   'sheet-close': () => closeOv(),
   'toggle-all': () => { ui.cust.all = !ui.cust.all; render(); },
   share: (el) => shareStatement(/** @type {string} */ (el.dataset.cid)),
+  'more-cl': (el) => {
+    const h = el.closest('.herosearch');
+    if (!h) return;
+    const on = h.classList.toggle('exp');
+    el.textContent = on ? 'أقل ▴' : `المزيد (${el.dataset.n}) ▾`;
+  },
   kb: () => { // تبديل كيبورد الأرقام / الأسماء
     const q = /** @type {HTMLInputElement | null} */ (document.getElementById('q'));
     if (!q) return;
@@ -1168,6 +1186,7 @@ document.addEventListener('input', (e) => {
   if (t.id === 'linkPhone') ui.linkPhone = toLatin(t.value);
   if (t.id === 'waText') { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
+  if (t.id === 'q') document.querySelector('.herosearch')?.classList.toggle('hasq', !!t.value.trim());
   if (t.id === 'q' && t.getAttribute('inputmode') === 'numeric') t.value = t.value.replace(/\D/g, ''); // وضع الأرقام: أرقام فقط
   if (t.id === 'q') { const r = document.getElementById('results'); if (r) r.innerHTML = resultsHtml(t.value); }
   if (t.id === 'dq') { ui.debtQ = t.value; const pos = t.selectionStart; render(); const n = /** @type {HTMLInputElement | null} */ (document.getElementById('dq')); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }
