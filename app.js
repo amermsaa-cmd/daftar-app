@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, isFrozenNow, effectiveCap, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, waMessage as coreWaMessage, waReminder,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, waMessage as coreWaMessage, waReminder, pendingWa,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -71,6 +71,34 @@ async function refreshBridge() {
   bridge.alive = !!(st && st.bridge && st.bridge.alive); bridge.at = Date.now();
   if (st && Array.isArray(st.items)) bridge.items = st.items;
   return st;
+}
+/**
+ * رسائل بانتظار الإرسال اليدوي: عمليات (من هذا الجوال أو من الكمبيوتر) لم يرسلها الجسر، وصندوقها يظهر في الرئيسية.
+ * الجسر هو الأصل؛ هذا الصندوق احتياط عند تعطله أو عند فشل الإرسال.
+ */
+const pend = { /** @type {ReturnType<typeof pendingWa>} */ items: [], dismissed: /** @type {Set<string>} */ (new Set()), bridgeDown: false };
+async function refreshPending() {
+  const cfg = waCfg();
+  if (!meta.syncOn || !meta.syncKey || !cfg.on) { pend.items = []; return false; }
+  const st = await refreshBridge();
+  if (!st) return false; // لا اتصال: نُبقي ما عندنا ولا نخمّن
+  /** @type {Record<string, string>} */ const statuses = {};
+  for (const it of (st.items || [])) statuses[it.op] = it.status;
+  const wait = cfg.auto && bridge.alive ? 240000 : 90000; // الجسر حيّ: نعطيه وقتاً قبل أن نعدّها معلّقة
+  const before = pend.items.length;
+  pend.items = pendingWa(ledger.state, statuses, { now: Date.now(), minAgeMs: wait, dismissed: pend.dismissed });
+  pend.bridgeDown = cfg.auto && !bridge.alive;
+  return pend.items.length !== before;
+}
+function pendingBanner() {
+  const n = pend.items.length;
+  if (!n) return '';
+  return `<button type="button" class="card" data-act="pend-open" style="display:block;width:100%;text-align:start;border-color:var(--pay);color:inherit"><b style="color:var(--pay)">${ic('chat')} ${n === 1 ? 'رسالة واتساب واحدة' : n + ' رسائل واتساب'} بانتظار الإرسال</b><div class="tag">${pend.bridgeDown ? 'الإرسال التلقائي متوقف الآن. ' : ''}اضغط لإرسالها يدوياً (تشمل عمليات الكمبيوتر).</div></button>`;
+}
+function pendingSheet() {
+  if (!pend.items.length) { closeOv(); return; }
+  const rows = pend.items.map((p) => `<div class="card row" style="align-items:center;gap:10px"><div class="nm"><b>${esc(p.name)}</b><small>${KIND[p.kind]} ${fmt(p.amount)} · ${fullFmt.format(p.ts)}</small></div><button type="button" class="btn main" data-act="pend-send" data-cid="${p.cid}" data-tid="${p.tid}" style="width:auto;padding:8px 14px">إرسال</button><button type="button" class="btn" data-act="pend-skip" data-tid="${p.tid}" style="width:auto;padding:8px 12px" aria-label="تجاهل">✕</button></div>`).join('');
+  sheet(`<div class="grab"></div><h3 style="margin:6px 0 10px">رسائل بانتظار الإرسال</h3><div class="stack" style="max-height:60vh;overflow:auto">${rows}</div><button type="button" class="nocancel" data-act="close-ov">إغلاق</button>`);
 }
 function waSheet(cid, tid = '') {
   const c = ledger.customer(cid);
@@ -193,6 +221,7 @@ async function runSync() {
   const st = await syncClient.sync();
   if (st === 'idle') { meta.syncLastAt = syncClient.lastSyncAt; await db.setMeta('syncLastAt', meta.syncLastAt); }
   if (location.hash.startsWith('#/settings')) await refreshBridge();
+  if (st === 'idle' && (await refreshPending()) && (location.hash.startsWith('#/home') || location.hash === '#/')) renderIfIdle();
   if (st === 'idle' && Date.now() - drvAt > 600000) { drvAt = Date.now(); if (await refreshDrive() && (location.hash.startsWith('#/home') || location.hash === '#/')) renderIfIdle(); }
   if (location.hash.startsWith('#/settings') && !ui.syncSetup) render();
   return st;
@@ -275,7 +304,7 @@ function viewHome() {
   const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="numeric" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="kbtog" data-act="kb" aria-label="تبديل لوحة المفاتيح">أ ب</button></div>${recentCustomersHtml()}</div>`;
   const dw = driveWarnDays();
   const warn = dw ? `<a class="card" href="#/settings" style="display:block;border-color:var(--pay);color:inherit;text-decoration:none"><b style="color:var(--pay)">${ic('lock')} تعذّر حفظ نسخة Google Drive منذ ${dw === 1 ? 'يوم' : dw + ' أيام'}</b><div class="tag">افتح الإعدادات ثم المزامنة والنسخ الاحتياطي لإصلاح الربط.</div></a>` : '';
-  const body = `<div class="body">${warn}<div id="results" class="stack">${resultsHtml('')}</div></div>`;
+  const body = `<div class="body">${pendingBanner()}${warn}<div id="results" class="stack">${resultsHtml('')}</div></div>`;
   return page({ title: 'الرئيسية', body, nav: 'home', sub, extra: `<button type="button" class="topscan" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button>` });
 }
 
@@ -1116,6 +1145,7 @@ const ACTS = {
       const r = await claimManual(SYNC_URL, meta.syncKey, tid, (u, i) => fetch(u, i));
       if (r && !r.ok && (r.status === 'sent' || r.status === 'sending')) { closeOv(); toast('أُرسلت تلقائياً للعميل ✓'); return; }
     }
+    if (tid) pend.items = pend.items.filter((x) => x.tid !== tid);
     closeOv();
     window.open(`https://wa.me/${waNumber(c.phone)}?text=${encodeURIComponent(text)}`, '_blank');
   },
@@ -1141,6 +1171,14 @@ const ACTS = {
     ui.syncKeyPending = key;
     sheet(`<div class="banner" style="font-size:16px;line-height:1.8;padding:16px 12px;font-weight:600">سيتم ربط هذا الجوال ببقالتك ودمج دفتره مع الدفتر الموجود على السيرفر. لا يُحذف شيء.</div>
       <div class="two"><button data-act="close-ov">رجوع</button><button class="go" data-act="sync-confirm">ربط</button></div>`, '', true);
+  },
+  'pend-open': () => pendingSheet(),
+  'pend-send': (el) => { closeOv(); waSheet(/** @type {string} */ (el.dataset.cid), /** @type {string} */ (el.dataset.tid)); },
+  'pend-skip': async (el) => {
+    pend.dismissed.add(/** @type {string} */ (el.dataset.tid));
+    pend.items = pend.items.filter((x) => x.tid !== el.dataset.tid);
+    await db.setMeta('waDismissed', [...pend.dismissed].slice(-300));
+    pendingSheet(); render();
   },
   'close-ov': () => { ui.syncKeyPending = ''; closeOv(); },
   'sync-confirm': async () => {
@@ -1234,6 +1272,7 @@ async function boot() {
   let deviceId = await db.getMeta('deviceId');
   if (!deviceId) { deviceId = shortId(10); await db.setMeta('deviceId', deviceId); }
   meta.deviceId = deviceId;
+  pend.dismissed = new Set(await db.getMeta('waDismissed', []));
   meta.lockEnabled = await db.getMeta('lockEnabled', false);
   meta.credId = await db.getMeta('credId');
   meta.ownerRequired = await db.getMeta('ownerRequired', false);

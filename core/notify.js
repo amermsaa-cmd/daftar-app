@@ -181,3 +181,26 @@ export function remPlan(state, settings = state.settings) {
   }
   return out.sort((a, b) => b.balance - a.balance);
 }
+
+/**
+ * رسائل بانتظار الإرسال اليدوي: عمليات حديثة (من هذا الجهاز أو من جهاز آخر كالكمبيوتر) لم يرسل الجسر رسالتها
+ * (لا سجل لها عند السيرفر، أو فشلت) ولم يرسلها الموظف ولم يتجاهلها.
+ * @param {import('./ops.js').State} state
+ * @param {Record<string, string>} statuses حالة الإشعار حسب معرّف العملية (sending/sent/failed/manual/restored)
+ * @param {{now: number, windowMs?: number, minAgeMs?: number, dismissed?: Set<string>, limit?: number}} o
+ * @returns {{ tid: string, cid: string, name: string, kind: string, amount: number, ts: number }[]}
+ */
+export function pendingWa(state, statuses, { now, windowMs = 2 * 86400000, minAgeMs = 90000, dismissed = new Set(), limit = 30 }) {
+  const out = [];
+  for (const t of state.txns.values()) {
+    if (t.voided || t.kind === 'opening') continue;
+    if (t.ts < now - windowMs || t.ts > now - minAgeMs) continue;
+    if (dismissed.has(t.id)) continue;
+    const st = statuses[t.id];
+    if (st && st !== 'failed') continue;
+    const c = state.customers.get(t.cid);
+    if (!c || c.archived || c.waOff || !waNumber(c.phone)) continue;
+    out.push({ tid: t.id, cid: c.id, name: c.name, kind: t.kind, amount: t.amount, ts: t.ts });
+  }
+  return out.sort((a, b) => b.ts - a.ts).slice(0, limit);
+}
