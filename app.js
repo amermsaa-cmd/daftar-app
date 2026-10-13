@@ -9,13 +9,15 @@ import * as lock from './lock.js';
 import { scanSupported, scanOnce } from './scan.js';
 import { SyncClient, verifyKey, SYNC_URL, notifyStatus, claimManual, linkStatus, linkRequest, driveCall } from './sync.js';
 import qrcode from './vendor/qrcode.js';
+import { initLicense } from './license.js';
+import * as gdrive from './gdrive.js';
 
 const VERSION = '0.2.0';
 const RELOCK_MS = 5 * 60 * 1000;
 
 /** @type {Ledger} */
 let ledger;
-const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: false, ownerPin: null, theme: 'auto', lastBackupAt: 0, syncOn: false, syncKey: '', syncCursor: 0, syncLastAt: 0, syncPushed: /** @type {Set<string>} */ (new Set()) };
+const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: false, ownerPin: null, theme: 'auto', lastBackupAt: 0, syncOn: false, syncKey: '', syncCursor: 0, syncLastAt: 0, syncPushed: /** @type {Set<string>} */ (new Set()), manualOn: false, manualKey: '', syncKeyUsed: '', firstUse: 0, drvLocalAt: 0, lic: /** @type {any} */ (null) };
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
@@ -52,9 +54,43 @@ function saveShop(t) {
   const key = t.id === 'shopNameIn' ? 'shop.name' : 'shop.phone';
   const v = toLatin(t.value.trim());
   const cur = shopInfo(ledger.state.settings);
-  if (v !== (key === 'shop.name' ? cur.name : cur.phone)) { ledger.setSetting(key, key === 'shop.name' ? t.value.trim() : v); flush(); }
+  if (v !== (key === 'shop.name' ? cur.name : cur.phone)) { try { ledger.setSetting(key, key === 'shop.name' ? t.value.trim() : v); flush(); } catch (e) { toast(e instanceof LedgerError && e.code === 'license' ? ERR.license : 'تعذّر الحفظ'); } }
 }
-const waCfg = () => waSettings(ledger.state.settings);
+// ===== الاشتراك والباقة =====
+/** @type {Awaited<ReturnType<typeof initLicense>>} */
+let license;
+let licAt = 0;
+const NO_LIC = { state: 'active', licensed: false, features: { sync: false, whatsapp: false }, keyFromCode: false, message: '', pack: 'basic', packLabel: '', daysLeft: 0, expires: '', trial: false };
+/** يحسب الباقة ويضبط المزامنة: مفتاح الكود أولاً، ثم المفتاح اليدوي إن سمحت الباقة، وإلا لا مزامنة. */
+function applyLicense(force = false) {
+  if (!license) return NO_LIC;
+  if (!force && meta.lic && Date.now() - licAt < 30000) return meta.lic;
+  licAt = Date.now();
+  const st = license.status();
+  meta.lic = st;
+  const codeKey = st.features.sync ? license.shopKey() : '';
+  const on = !st.features.sync ? false : (codeKey ? true : meta.manualOn);
+  const key = !st.features.sync ? '' : (codeKey || meta.manualKey);
+  const changed = on !== meta.syncOn || key !== meta.syncKey;
+  meta.syncOn = on; meta.syncKey = key;
+  if (on && key && meta.syncKeyUsed !== key) { // بقالة مختلفة عن التي كانت تتزامن: نبدأ المؤشر من الصفر (لا يُحذف شيء)
+    if (meta.syncKeyUsed) { meta.syncCursor = 0; meta.syncLastAt = 0; meta.syncPushed = new Set(); db.setMeta('syncCursor', 0); db.setMeta('syncLastAt', 0); db.setMeta('syncPushed', []); }
+    meta.syncKeyUsed = key; db.setMeta('syncKeyUsed', key);
+  }
+  if (changed && ledger) { clearTimeout(syncTimer); startSync(); if (on) schedSync(300); }
+  return st;
+}
+const lic = () => (applyLicense() || NO_LIC);
+const waCfg = () => { const c = waSettings(ledger.state.settings); return lic().features.whatsapp ? c : { ...c, on: false, auto: false }; };
+
+/** تنبيه الاشتراك (قريب الانتهاء / مهلة / قراءة فقط) */
+function licBanner() {
+  const s = lic();
+  if (s.state === 'active') return '';
+  const red = s.state === 'readonly';
+  const c = red ? 'var(--danger)' : 'var(--pay)';
+  return `<button type="button" class="card" data-act="go-lic" style="display:block;width:100%;text-align:start;border-color:${c}"><b style="color:${c}">${ic('key')} ${red ? 'التسجيل متوقف' : 'تنبيه الاشتراك'}</b><div class="tag">${esc(s.message)}</div><div class="tag">اضغط هنا لإدخال كود التفعيل.</div></button>`;
+}
 async function setWa(key, value) { ledger.setSetting(key, value); await flush(); render(); }
 /** نص الرسالة للعميل (بدون اسمه): الرصيد وآخر عملية واسم البقالة حسب الإعدادات */
 function waMessage(cid) {
@@ -304,7 +340,10 @@ function viewHome() {
   const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="q" type="search" inputmode="numeric" autocomplete="off" placeholder="ابحث بالرقم أو الاسم" aria-label="بحث"><button type="button" class="kbtog" data-act="kb" aria-label="تبديل لوحة المفاتيح">أ ب</button></div>${recentCustomersHtml()}</div>`;
   const dw = driveWarnDays();
   const warn = dw ? `<a class="card" href="#/settings" style="display:block;border-color:var(--pay);color:inherit;text-decoration:none"><b style="color:var(--pay)">${ic('lock')} تعذّر حفظ نسخة Google Drive منذ ${dw === 1 ? 'يوم' : dw + ' أيام'}</b><div class="tag">افتح الإعدادات ثم المزامنة والنسخ الاحتياطي لإصلاح الربط.</div></a>` : '';
-  const body = `<div class="body">${pendingBanner()}${warn}<div id="results" class="stack">${resultsHtml('')}</div></div>`;
+  const bd = backupDueDays();
+  if (bd) gdPrepare();
+  const bwarn = bd ? `<button type="button" class="card" data-act="gdrive-now" style="display:block;width:100%;text-align:start;border-color:var(--pay)"><b style="color:var(--pay)">${ic('cloud')} لم تنسخ نسخة احتياطية منذ ${bd === 1 ? 'يوم' : bd + ' أيام'}</b><div class="tag">اضغط هنا لنسخ دفترك إلى Google Drive الآن (نقرتان).</div></button>` : '';
+  const body = `<div class="body">${licBanner()}${pendingBanner()}${warn}${bwarn}<div id="results" class="stack">${resultsHtml('')}</div></div>`;
   return page({ title: 'الرئيسية', body, nav: 'home', sub, extra: `<button type="button" class="topscan" data-act="scan" aria-label="مسح بطاقة العميل">${ic('scan')}</button>` });
 }
 
@@ -320,7 +359,7 @@ function viewRecord(cid) {
   const sub = `<a class="recinfo" href="#/customer/${c.id}"><div class="nm"><b>${esc(c.name)}</b><small>رقم ${c.codeNo} · الرصيد الحالي</small></div>${balHtml(c)}</a>
     <div class="kinds">${kinds}</div>`;
   const body = `<div class="body" style="gap:10px">
-    <div class="big" id="amt">${esc(ui.rec.amt || '0')}</div>
+    ${lic().state === 'readonly' ? licBanner() : ''}<div class="big" id="amt">${esc(ui.rec.amt || '0')}</div>
     <div class="keys">${keys}</div>
     <button class="save" data-act="save">حفظ</button></div>`;
   return page({ title: 'تسجيل عملية', back: '#/home', nav: '-', sub, body, style: `--kind:var(--${v});--kind-ink:var(--${v}-ink)` });
@@ -487,7 +526,7 @@ function driveWarnDays() {
   return days >= 1 ? days : 0;
 }
 function driveHtml() {
-  if (!meta.syncOn) return '<div class="tag">يحتاج تفعيل «المزامنة مع السيرفر» أولاً.</div>';
+  if (!meta.syncOn) return gdriveHtml();
   if (!drv.ok && drv.err) return `<div class="tag" style="color:var(--pay)">تعذّر التحقق من السيرفر (${esc(drv.err === 'net' ? 'لا اتصال' : 'رمز ' + drv.err)}).</div><button class="btn" data-act="drive-retry">إعادة المحاولة</button>`;
   if (!drv.ok) return '<div class="tag">جارٍ التحقق...</div>';
   const d = drv.d;
@@ -507,6 +546,82 @@ function driveHtml() {
     ? `<div class="tag">يتوقف حفظ النسخ الجديدة. تبقى النسخ الحالية في Drive. هل تريد الفصل؟</div><div class="two"><button class="btn" data-act="drive-unlink-no">إلغاء</button><button class="btn" data-act="drive-unlink-yes">نعم، افصل</button></div>`
     : `<div class="two"><button class="btn" data-act="drive-now" ${drv.busy ? 'disabled' : ''}>${drv.busy ? '<span class="spin" aria-hidden="true"></span>جارٍ النسخ...' : 'انسخ الآن'}</button><button class="btn" data-act="drive-unlink">فصل الربط</button></div>`;
   return `${head}<div class="tag">نسخة جديدة كل يوم، تُحفظ آخر ${d.keepDays || 30} يوماً ثم تُحذف الأقدم تلقائياً.</div>${off}`;
+}
+
+// ===== نسخ Drive المباشر من الجوال (بلا سيرفر مزامنة) =====
+const gd = { busy: false, err: '' };
+/** @type {Promise<any> | null} */ let gdPrep = null;
+async function getClientId() {
+  const saved = await db.getMeta('gClientId', '');
+  if (saved) return saved;
+  const r = await fetch(`${SYNC_URL}/v1/drive/client-id`);
+  const j = await r.json().catch(() => ({}));
+  if (j && j.id) { await db.setMeta('gClientId', j.id); return j.id; }
+  return '';
+}
+/** تجهيز مسبق حتى تُفتح نافذة Google مباشرة عند الضغط (المتصفح يحجبها لو تأخرت) */
+function gdPrepare() {
+  if (gdPrep) return;
+  gdPrep = gdrive.prepare(getClientId).catch(() => { gdPrep = null; });
+}
+/** كم يوماً مرّ بلا أي نسخة احتياطية (Drive أو واتساب)؟ 0 = لا تنبيه. لا ينطبق مع المزامنة (السيرفر ينسخ). */
+function backupDueDays() {
+  if (meta.syncOn || locked) return 0;
+  const last = Math.max(meta.lastBackupAt || 0, meta.drvLocalAt || 0, meta.firstUse || 0);
+  const d = Math.floor((Date.now() - last) / 86400000);
+  return d >= 1 ? d : 0;
+}
+function gdMsg(/** @type {any} */ e) {
+  const m = String((e && e.message) || e);
+  if (m === 'canceled') return 'أُلغيت الموافقة';
+  if (m === 'net') return 'يحتاج اتصالاً بالإنترنت';
+  if (m === 'not-configured') return 'نسخ Drive غير مفعّل على السيرفر بعد';
+  if (m === 'access_denied') return 'رُفضت الصلاحية. وافق على صلاحية Drive وأعد المحاولة';
+  if (/^drive-40[13]$/.test(m)) return 'لم تُمنح صلاحية Drive. أعد المحاولة ووافق على الصلاحية';
+  return 'تعذّر النسخ (' + m + ')';
+}
+function gdriveHtml() {
+  gdPrepare();
+  const last = meta.drvLocalAt;
+  return `<div class="stack"><div class="tag">انسخ دفترك إلى Google Drive الخاص بك بنقرة واحدة. يرى التطبيق مجلد «دفتر الأجل» فقط ولا يرى بقية ملفاتك. تطلب Google موافقة سريعة عند كل نسخة.</div>
+    ${last ? `<div class="lkok">${ic('check')}<div><b>آخر نسخة إلى Drive</b><div class="tag">${fullFmt.format(last)}</div></div></div>` : ''}
+    <button class="btn main" data-act="gdrive-now" ${gd.busy ? 'disabled' : ''}>${gd.busy ? '<span class="spin" aria-hidden="true"></span>جارٍ النسخ...' : ic('cloud') + 'انسخ إلى Drive الآن'}</button>
+    ${gd.err ? `<div class="tag" style="color:var(--pay)">${esc(gd.err)}</div>` : ''}
+    <div class="tag">تُحفظ آخر 30 يوماً، ويُحدَّث ملف اليوم في كل نسخة. تظهر لك تنبيه في الرئيسية لو مرّ يوم بلا نسخة.</div></div>`;
+}
+/** يُستدعى من نقرة مباشرة: طلب الإذن أولاً (قبل أي await) حتى لا يحجب المتصفح النافذة */
+function gdriveNow() {
+  if (gd.busy) return;
+  if (!gdrive.isReady()) { gdPrepare(); toast('جارٍ التجهيز، اضغط مرة ثانية بعد لحظات', 3000); return; }
+  const tokenP = gdrive.requestToken();
+  gd.busy = true; gd.err = ''; render();
+  (async () => {
+    try {
+      const token = await tokenP;
+      const json = JSON.stringify({ app: 'daftar', v: 1, exportedAt: Date.now(), device: meta.deviceId, ops: ledger.allOps() });
+      await gdrive.uploadBackup({ token, json });
+      meta.drvLocalAt = Date.now(); await db.setMeta('drvLocalAt', meta.drvLocalAt);
+      toast('✓ نُسخت إلى Google Drive', 3000);
+    } catch (e) { gd.err = gdMsg(e); toast(gd.err, 4500); }
+    gd.busy = false; render();
+  })();
+}
+
+// ===== بطاقة الاشتراك =====
+function licCardHtml() {
+  const s = lic();
+  const col = { active: 'var(--buy)', warning: 'var(--pay)', grace: 'var(--pay)', readonly: 'var(--danger)' }[s.state] || 'var(--muted)';
+  const head = !s.licensed ? 'غير مفعّل' : s.state === 'readonly' ? 'انتهى: قراءة فقط' : `${s.trial ? 'فترة تجريبية' : 'اشتراك فعّال'} حتى ${s.expires} (متبقٍ ${Math.max(s.daysLeft, 0)} يوماً)`;
+  const inner = `<div class="stack">
+    <div class="row"><span class="tag">الحالة</span><b><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-inline-end:6px"></span>${esc(head)}</b></div>
+    ${s.licensed ? `<div class="row"><span class="tag">الباقة</span><b>${esc(s.packLabel)}</b></div>` : ''}
+    ${s.message ? `<div class="tag" style="color:${col}">${esc(s.message)}</div>` : ''}
+    <div class="row"><span class="tag">رمز هذا الجهاز</span><b dir="ltr" style="font-size:20px;letter-spacing:1px">${esc(license.deviceCode)}</b></div>
+    <button class="btn" data-act="lic-copy">${ic('copy')}نسخ الرمز</button>
+    <div class="tag">للتفعيل أو التجديد: أرسل رمز الجهاز لمزوّد البرنامج، وسيرسل لك كود التفعيل.</div>
+    <textarea id="licCode" class="keyin" dir="ltr" rows="3" placeholder="ألصق كود التفعيل هنا" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+    <button class="btn main" data-act="lic-activate">${ic('check')}تفعيل</button></div>`;
+  return { status: !s.licensed ? 'غير مفعّل' : `${s.packLabel} · ${s.state === 'readonly' ? 'انتهى' : 'فعّال'}`, inner };
 }
 
 function waLinkHtml() {
@@ -537,6 +652,8 @@ function waLinkHtml() {
 }
 
 function syncCardHtml() {
+  if (!lic().features.sync) return { status: 'غير متاحة في باقتك', inner: '<div class="tag">المزامنة مع السيرفر وبين الأجهزة متاحة في باقتي «بالرسائل» و«المتكاملة». يبقى التطبيق يعمل كاملاً على هذا الجهاز، ونسخ Google Drive بالأسفل.</div>' };
+  const fromCode = !!lic().keyFromCode;
   const open = meta.syncOn || ui.syncSetup;
   let inner = `<div class="tag">مطفأة افتراضياً. يبقى التطبيق يعمل كاملاً بدونها.</div>`;
   if (ui.syncSetup && !meta.syncOn) {
@@ -553,10 +670,11 @@ function syncCardHtml() {
       <div class="row"><span class="tag">آخر مزامنة</span><span>${last ? fullFmt.format(last) : 'لم تتم بعد'}</span></div>
       <div class="row"><span class="tag">بانتظار الإرسال</span><span class="num">${pending} عملية</span></div>
       <button class="btn" data-act="sync-now">${ic('save')}مزامنة الآن</button>
-      <button class="btn" data-act="sync-change">${ic('gear')}تغيير مفتاح البقالة</button>
+      ${fromCode ? '' : `<button class="btn" data-act="sync-change">${ic('gear')}تغيير مفتاح البقالة</button>`}
       <div class="tag">عند انقطاع الإنترنت تُحفظ العمليات في الجوال وتُرسل عند عودته.</div></div>`;
   }
   const stTxt = meta.syncOn ? (syncClient && SYNC_MSG[syncClient.state] ? 'مفعّلة' : 'متصل ✓') : 'مطفأة';
+  if (fromCode) return { status: stTxt, inner: `<div class="tag">مضبوطة تلقائياً من اشتراكك، ولا تحتاج مفتاحاً.</div>${inner}` };
   return { status: stTxt, inner: `<div class="sw"><div><span>نسخة احتياطية تلقائية، وتزامن بين الجوالات</span></div>${tgl('toggle-sync', open)}</div>${inner}` };
 }
 
@@ -621,7 +739,7 @@ function remCardHtml() {
 }
 
 function viewSettings() {
-  const shop = shopCardHtml(); const wa = waCardHtml(); const rem = remCardHtml(); const sy = syncCardHtml();
+  const shop = shopCardHtml(); const wa = waCardHtml(); const rem = remCardHtml(); const sy = syncCardHtml(); const lc = licCardHtml();
   const capOn = !!ledger.state.settings.capEnabled;
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
@@ -635,6 +753,7 @@ function viewSettings() {
     <div id="formErr"></div>
     <button class="save" type="submit">حفظ العميل</button></form>` : ''}</div>`;
   const body = `<div class="body">
+    ${licBanner()}
     ${acc('shop', 'home', 'بيانات البقالة', shop.status, shop.inner + dsec('المظهر') + `<div class="two3">${[['auto', 'auto', 'تلقائي'], ['light', 'sun', 'نهاري'], ['dark', 'moon', 'ليلي']].map(([k, i, l]) => `<button class="btn${meta.theme === k ? ' sel' : ''}" data-act="theme" data-t="${k}" aria-pressed="${meta.theme === k}">${ic(i)}${l}</button>`).join('')}</div>`)}
     ${acc('sec', 'lock', 'الأمان والتحكم', `${meta.lockEnabled ? 'قفل مفعّل' : 'القفل مطفأ'} · ${capOn ? 'سقف مفعّل' : 'السقف مطفأ'}`,
       `<div class="sw"><span>قفل التطبيق (بصمة الجوال أو رمز فتحه)</span>${tgl('toggle-lock', meta.lockEnabled)}</div>
@@ -645,10 +764,11 @@ function viewSettings() {
       <div class="sw"><span>تفعيل سقف الدين</span>${tgl('toggle-cap', capOn)}</div>
       ${capOn ? `<div class="mset"><span>السقف العام لكل عميل</span><div class="mstep"><button type="button" data-act="cap-step" data-d="-1" aria-label="أنقص">−</button><b>${fmt(Number(ledger.state.settings.globalCap || 0))} ريال</b><button type="button" data-act="cap-step" data-d="1" aria-label="زِد">+</button></div></div>` : ''}
       <div class="tag">مطفأ افتراضياً. يسري على كل عميل ليس له سقف خاص (يُحدَّد من «تعديل بيانات العميل»). عند تجاوزه يظهر تنبيه عند تسجيل الشراء. وإيقاف الآجل لعميل من قائمة ⋮ في حسابه.</div>`)}
-    ${acc('wa', 'chat', 'الواتساب', (link.ok && link.state === 'linked' ? 'مربوط ✓ · ' : '') + wa.status, dsec('الربط') + waLinkHtml() + dsec('الرسائل') + wa.inner + dsec('التذكير الشهري') + rem.inner)}
+    ${!lic().features.whatsapp ? '' : acc('wa', 'chat', 'الواتساب', (link.ok && link.state === 'linked' ? 'مربوط ✓ · ' : '') + wa.status, dsec('الربط') + waLinkHtml() + dsec('الرسائل') + wa.inner + dsec('التذكير الشهري') + rem.inner)}
     ${acc('sync', 'save', 'المزامنة والنسخ الاحتياطي', sy.status + (drv.ok && drv.d && drv.d.linked ? (drv.d.state === 'error' || drv.d.failSince ? ' · Drive ⚠' : ' · Drive ✓') : ''), dsec('المزامنة مع السيرفر') + sy.inner + dsec('نسخة احتياطية') + `<button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button>
       <div class="tag">آخر نسخة: ${lastB}</div>
       <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + driveHtml())}
+    ${acc('lic', 'key', 'الاشتراك', lc.status, lc.inner)}
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
   return page({ title: 'الإعدادات', body, sub, nav: 'settings' });
@@ -765,6 +885,7 @@ const ERR = {
   archived: 'هذا العميل مؤرشف',
   'bad-amount': 'المبلغ غير صحيح',
   'needs-approval': 'العميل موقوف أو تجاوز السقف',
+  license: 'التسجيل متوقف: أدخل كود الاشتراك من الإعدادات',
 };
 
 async function saveRecord(approve = false) {
@@ -1031,7 +1152,7 @@ const ACTS = {
     const tid = /** @type {string} */ (el.dataset.tid);
     closeOv();
     if (!(await requireOwner())) return;
-    try { ledger.voidTxn(tid, reason); await flush(); toast('✓ تم عكس العملية'); } catch (e) { toast(e instanceof LedgerError ? e.code : 'تعذّر العكس'); }
+    try { ledger.voidTxn(tid, reason); await flush(); toast('✓ تم عكس العملية'); } catch (e) { toast(e instanceof LedgerError ? (ERR[e.code] || e.code) : 'تعذّر العكس'); }
     render();
   },
   'toggle-lock': () => toggleLock(),
@@ -1150,18 +1271,19 @@ const ACTS = {
     window.open(`https://wa.me/${waNumber(c.phone)}?text=${encodeURIComponent(text)}`, '_blank');
   },
   'toggle-sync': async () => {
-    if (meta.syncOn) {
-      meta.syncOn = false; await db.setMeta('syncOn', false); syncClient = null; clearTimeout(syncTimer);
-    } else if (meta.syncKey && !ui.syncSetup) {
-      meta.syncOn = true; await db.setMeta('syncOn', true); startSync(); schedSync(100);
+    if (lic().keyFromCode) return; // المزامنة مضبوطة تلقائياً من الاشتراك
+    if (meta.manualOn) {
+      meta.manualOn = false; await db.setMeta('syncOn', false);
+    } else if (meta.manualKey && !ui.syncSetup) {
+      meta.manualOn = true; await db.setMeta('syncOn', true);
     } else ui.syncSetup = !ui.syncSetup;
-    render();
+    applyLicense(true); render();
   },
   'sync-change': async () => {
-    clearTimeout(syncTimer); syncClient = null;
-    meta.syncOn = false; meta.syncKey = ''; ui.syncSetup = true;
+    if (lic().keyFromCode) return;
+    meta.manualOn = false; meta.manualKey = ''; ui.syncSetup = true;
     await db.setMeta('syncOn', false); await db.setMeta('syncKey', '');
-    render();
+    applyLicense(true); render();
   },
   'sync-link': async () => {
     const key = toLatin(/** @type {HTMLInputElement} */ (document.getElementById('syncKeyInput'))?.value || '').trim();
@@ -1172,6 +1294,15 @@ const ACTS = {
     sheet(`<div class="banner" style="font-size:16px;line-height:1.8;padding:16px 12px;font-weight:600">سيتم ربط هذا الجوال ببقالتك ودمج دفتره مع الدفتر الموجود على السيرفر. لا يُحذف شيء.</div>
       <div class="two"><button data-act="close-ov">رجوع</button><button class="go" data-act="sync-confirm">ربط</button></div>`, '', true);
   },
+  'go-lic': () => { ui.accOpen.lic = true; if (route()[0] === 'settings') render(); else location.hash = '#/settings'; },
+  'lic-copy': async () => { try { await navigator.clipboard.writeText(license.deviceCode); toast('✓ نُسخ رمز الجهاز'); } catch { toast('رمز الجهاز: ' + license.deviceCode, 8000); } },
+  'lic-activate': async () => {
+    const code = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('licCode'))?.value || '';
+    if (!code.trim()) { toast('ألصق كود التفعيل أولاً'); return; }
+    try { license.activate(code); } catch (e) { toast(String((e && /** @type {any} */ (e).message) || e), 5000); return; }
+    applyLicense(true); render(); toast('✓ تم تفعيل الاشتراك', 3500);
+  },
+  'gdrive-now': () => gdriveNow(),
   'pend-open': () => pendingSheet(),
   'pend-send': (el) => { closeOv(); waSheet(/** @type {string} */ (el.dataset.cid), /** @type {string} */ (el.dataset.tid)); },
   'pend-skip': async (el) => {
@@ -1185,11 +1316,11 @@ const ACTS = {
     const key = ui.syncKeyPending; ui.syncKeyPending = '';
     closeOv();
     if (!key) return;
-    Object.assign(meta, { syncKey: key, syncOn: true, syncCursor: 0, syncLastAt: 0, syncPushed: new Set() });
+    Object.assign(meta, { manualKey: key, manualOn: true, syncCursor: 0, syncLastAt: 0, syncPushed: new Set(), syncKeyUsed: key });
     await db.setMeta('syncKey', key); await db.setMeta('syncOn', true); await db.setMeta('syncCursor', 0);
-    await db.setMeta('syncLastAt', 0); await db.setMeta('syncPushed', []);
+    await db.setMeta('syncLastAt', 0); await db.setMeta('syncPushed', []); await db.setMeta('syncKeyUsed', key);
     ui.syncSetup = false;
-    startSync(); render();
+    applyLicense(true); render();
     const st = await runSync();
     toast(st === 'idle' ? '✓ تم الربط والمزامنة' : 'تم الربط. ستكتمل المزامنة عند توفر الاتصال', 3500);
     render();
@@ -1225,7 +1356,9 @@ document.addEventListener('click', (e) => {
   if (!el) return;
   const act = /** @type {HTMLElement} */ (el).dataset.act;
   const fn = ACTS[act];
-  if (fn) fn(/** @type {HTMLElement} */ (el));
+  if (!fn) return;
+  const onErr = (/** @type {any} */ err) => { if (err instanceof LedgerError && err.code === 'license') toast(ERR.license, 4000); else console.error(err); };
+  try { const r = /** @type {any} */ (fn(/** @type {HTMLElement} */ (el))); if (r && r.catch) r.catch(onErr); } catch (err) { onErr(err); }
 });
 
 document.addEventListener('input', (e) => {
@@ -1279,12 +1412,19 @@ async function boot() {
   meta.ownerPin = await db.getMeta('ownerPin');
   meta.theme = await db.getMeta('theme', 'auto');
   meta.lastBackupAt = await db.getMeta('lastBackupAt', 0);
-  meta.syncOn = await db.getMeta('syncOn', false);
-  meta.syncKey = await db.getMeta('syncKey', '');
+  meta.manualOn = await db.getMeta('syncOn', false);
+  meta.manualKey = await db.getMeta('syncKey', '');
+  meta.syncKeyUsed = await db.getMeta('syncKeyUsed', meta.manualOn ? meta.manualKey : '');
+  meta.drvLocalAt = await db.getMeta('drvLocalAt', 0);
+  meta.firstUse = await db.getMeta('firstUse', 0);
+  if (!meta.firstUse) { meta.firstUse = Date.now(); await db.setMeta('firstUse', meta.firstUse); }
+  license = await initLicense({ store: db });
   meta.syncCursor = await db.getMeta('syncCursor', 0);
   meta.syncLastAt = await db.getMeta('syncLastAt', 0);
   meta.syncPushed = new Set(await db.getMeta('syncPushed', []));
   ledger = new Ledger({ deviceId, ops });
+  ledger.writeGuard = () => license.canWrite(); // انتهاء الاشتراك = قراءة فقط (العرض والتقارير والنسخ تبقى)
+  applyLicense(true);
   for (const id of ledger.opIds()) saved.add(id);
   applyTheme();
   db.requestPersistence();

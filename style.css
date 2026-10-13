@@ -315,3 +315,5 @@ button.card{font:inherit;color:inherit}
 .pill-c.x{display:none}.herosearch.exp .pill-c.x{display:block}
 .moreb{display:block;width:100%;background:transparent;border:0;color:#3ebd93;font-weight:700;font-size:13px;padding:8px 0 2px;cursor:pointer}
 .herosearch.hasq .cl,.herosearch.hasq .pills,.herosearch.hasq .moreb{display:none}
+
+textarea.keyin{resize:vertical;min-height:84px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5}

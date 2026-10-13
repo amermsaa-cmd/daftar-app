@@ -41,6 +41,8 @@ export class Ledger {
     for (const op of ops) if (isValidOp(op)) this.ops.set(op.id, op);
     /** @type {State | null} */
     this._state = null;
+    /** حارس الكتابة (الاشتراك): يُرجع {ok:false,message} لمنع تسجيل أي عملية جديدة. الدمج من المزامنة لا يمرّ به. @type {(() => {ok: boolean, message?: string}) | null} */
+    this.writeGuard = null;
   }
 
   /** الحالة المحسوبة (تُحسب عند الحاجة وتُخزَّن لين يتغيّر السجل). @returns {State} */
@@ -89,6 +91,7 @@ export class Ledger {
    * @returns {Op}
    */
   record(type, data) {
+    if (this.writeGuard) { const g = this.writeGuard(); if (g && g.ok === false) throw new LedgerError('license', { message: g.message || '' }); }
     /** @type {Op} */
     const op = { id: opId(), dev: this.deviceId, ts: this.clock(), type, data };
     this.ops.set(op.id, op);

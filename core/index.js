@@ -10,3 +10,4 @@ export {
 export { opsFromLegacy } from './legacy.js';
 export { eventsLog } from './events.js';
 export { waNumber, waSettings, shopInfo, waMessage, waReminder, remSettings, remDue, remOpId, remPlan, riyadhParts, waSkipReason, waStamp, pendingWa } from './notify.js';
+export * from './license.js';
