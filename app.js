@@ -22,7 +22,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', impTab: 'one', impText: '', impRows: /** @type {any[] | null} */ (null), impTotal: '', impDone: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false, trainAsk: false, delAsk: false, delBacked: false };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', impTab: 'one', impText: '', impRows: /** @type {any[] | null} */ (null), impTotal: '', impDone: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false, trainAsk: false, delAsk: false, delBacked: false, adv: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -652,6 +652,7 @@ function gdPrepare() {
 }
 /** كم يوماً مرّ بلا أي نسخة احتياطية (Drive أو واتساب)؟ 0 = لا تنبيه. لا ينطبق مع المزامنة (السيرفر ينسخ). */
 function delHtml() {
+  if (!ui.adv) return `<button class="btn" data-act="adv-open" style="opacity:.7">خيارات متقدمة</button>`;
   if (!ui.delAsk) return `<button class="btn" data-act="del-ask">${ic('trash')}حذف بيانات هذا الجهاز</button>`;
   return `<div class="card stack"><b>حذف بيانات هذا الجهاز</b>
     <div class="tag">يمسح الدفتر والاشتراك من هذا الجهاز فقط. يجب حفظ نسخة احتياطية أولاً، وبعدها تسترجعها متى شئت.</div>
@@ -1418,8 +1419,9 @@ const ACTS = {
       <div class="two"><button data-act="close-ov">رجوع</button><button class="go" data-act="sync-confirm">ربط</button></div>`, '', true);
   },
   'restore-file': () => restoreFromFile(),
+  'adv-open': () => { ui.adv = true; render(); },
   'del-ask': () => { ui.delAsk = true; ui.delBacked = false; render(); },
-  'del-cancel': () => { ui.delAsk = false; ui.delBacked = false; render(); },
+  'del-cancel': () => { ui.delAsk = false; ui.adv = false; ui.delBacked = false; render(); },
   'del-backup': async () => { if (await backup()) { ui.delBacked = true; render(); } },
   'del-go': async () => {
     const w = /** @type {HTMLInputElement | null} */ (document.getElementById('delWord'));
