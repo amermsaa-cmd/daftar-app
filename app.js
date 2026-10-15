@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, isFrozenNow, effectiveCap, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, waMessage as coreWaMessage, waReminder, pendingWa,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, waMessage as coreWaMessage, waAccountTag, waReminder, pendingWa,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -21,7 +21,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -151,7 +151,7 @@ function waSheet(cid, tid = '') {
   const remHtml = rem ? `<div class="kind">${rem.state === 'debt' ? 'رصيدكم للمشتريات الأجلة' : rem.state === 'credit' ? 'لكم عندنا' : 'حسابكم مسدّد'}</div>${rem.state === 'zero' ? '' : `<div class="amt" style="color:${rem.state === 'debt' ? 'var(--pay)' : 'var(--buy)'}">${fmt(rem.amount)}<small>ريال</small></div>`}${rem.lines.slice(rem.state === 'zero' ? 1 : 1).map((l) => `<div class="tag">${esc(l)}</div>`).join('')}` : '';
   const el = sheet(`<div class="grab"></div>
     <div class="nwhead"><span class="av">${esc([...c.name][0] || '؟')}</span><div class="who"><b>${esc(c.name)}</b><small dir="ltr">${esc(c.phone)}</small></div><span class="chip">${ic('chat')}واتساب</span></div>
-    <div class="receipt" id="waRc">${w.shop ? `<div class="shop">${esc(w.shop)}</div>` : ''}${remHtml}${kl ? `<div class="kind">${kl[0]}</div><div class="amt" style="color:${kl[1]}">${fmt(t.amount)}<small>ريال</small></div>` : ''}${bal ? `<div class="kind">${esc(bal)}</div>` : ''}<div class="when"><bdi>${esc(d)}</bdi><i></i><bdi>${esc(tm || '')}</bdi></div></div>
+    <div class="receipt" id="waRc">${w.shop ? `<div class="shop">${esc(w.shop)}</div>` : ''}${waAccountTag(s, cid) ? `<div class="tag">حساب: ${esc(waAccountTag(s, cid))}</div>` : ''}${remHtml}${kl ? `<div class="kind">${kl[0]}</div><div class="amt" style="color:${kl[1]}">${fmt(t.amount)}<small>ريال</small></div>` : ''}${bal ? `<div class="kind">${esc(bal)}</div>` : ''}<div class="when"><bdi>${esc(d)}</bdi><i></i><bdi>${esc(tm || '')}</bdi></div></div>
     <textarea id="waText" class="rtx" hidden rows="${msg.split('\n').length}" aria-label="نص الرسالة">${esc(msg)}</textarea>
     <button type="button" class="editlink" data-act="wa-edit">${ic('edit')}<span>تعديل النص</span></button>
     <button type="button" class="gobtn" data-act="wa-go" data-cid="${c.id}" data-tid="${tid}">${ic('chat')}إرسال عبر واتساب</button>
@@ -431,17 +431,32 @@ function viewEdit(cid) {
   return page({ title: 'تعديل العميل', back: `#/customer/${cid}`, nav: '-', body });
 }
 
+const DEBT_FILTERS = [['debt', 'المدينون'], ['all', 'الكل'], ['zero', 'المسدّدون'], ['credit', 'لهم رصيد عندنا'], ['frozen', 'الآجل موقوف']];
 function viewDebts() {
   const now = Date.now();
-  const rows = debtTable(ledger.state, now, 'debt');
-  const total = rows.reduce((a, r) => a + r.customer.balance, 0);
+  const f = ui.debtFilter;
+  // الأبجدي افتراضي؛ «الأعلى رصيداً» خيار للمدينين فقط
+  const sort = f === 'debt' && ui.debtSort === 'balance' ? 'balance' : 'alpha';
+  const rows = debtTable(ledger.state, now, /** @type {any} */ (f), sort);
   const q = ui.debtQ.trim();
   const shown = q ? rows.filter((r) => ledger.search(q, { limit: 500 }).some((c) => c.id === r.customer.id)) : rows;
-  const list = shown.map((r) => `<a class="card row" href="#/customer/${r.customer.id}"><div class="nm"><b>${esc(r.customer.name)}</b><small>${r.days === 0 ? 'آخر حركة اليوم' : `منذ ${r.days} يوم`}</small></div><span class="num owe">${fmt(r.customer.balance)}</span></a>`).join('');
-  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="dq" type="search" autocomplete="off" placeholder="ابحث في الجدول" value="${esc(ui.debtQ)}"><a class="addbtn" href="#/add" aria-label="إضافة عميل جديد">${ic('plus')}</a></div></div>`;
+  const owed = shown.reduce((a, r) => a + Math.max(0, r.customer.balance), 0);
+  const credit = shown.reduce((a, r) => a + Math.max(0, -r.customer.balance), 0);
+  const list = shown.map((r) => {
+    const b = r.customer.balance;
+    const amt = b > 0 ? `<span class="num owe">${fmt(b)}</span>` : b < 0 ? `<span class="num" style="color:var(--buy)">له ${fmt(-b)}</span>` : '<span class="tag">مسدّد</span>';
+    return `<a class="card row" href="#/customer/${r.customer.id}"><div class="nm"><b>${esc(r.customer.name)}</b><small>${r.frozen ? 'الآجل موقوف · ' : ''}${r.days === 0 ? 'آخر حركة اليوم' : `منذ ${r.days} يوم`}</small></div>${amt}</a>`;
+  }).join('');
+  const chips = DEBT_FILTERS.map(([k, l]) => `<button type="button" class="pill-c${f === k ? ' on' : ''}" data-act="debt-filter" data-k="${k}">${l}</button>`).join('');
+  const sortChip = f === 'debt' ? `<button type="button" class="pill-c sortc" data-act="debt-sort">${ui.debtSort === 'balance' ? 'الترتيب: الأعلى رصيداً' : 'الترتيب: أبجدي'}</button>` : '';
+  const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="dq" type="search" autocomplete="off" placeholder="ابحث في الجدول" value="${esc(ui.debtQ)}"><a class="addbtn" href="#/add" aria-label="إضافة عميل جديد">${ic('plus')}</a></div><div class="pills dpills">${chips}${sortChip}</div></div>`;
+  const EMPTY = { debt: 'لا توجد ديون حالياً', all: 'لا يوجد عملاء بعد', zero: 'لا يوجد عملاء مسدّدون', credit: 'لا أحد له رصيد عندنا', frozen: 'لا يوجد عميل موقوف الآجل' };
   const body = `<div class="body">
-    ${list || '<div class="card center tag">لا توجد ديون حالياً</div>'}</div>`;
-  return page({ title: 'العملاء', body, sub, nav: 'debts', extra: `<span class="sp"></span><span class="tag">المجموع</span><span class="num owe">${fmt(total)}</span>` });
+    ${list || `<div class="card center tag">${q ? 'لا نتائج للبحث' : EMPTY[f] || ''}</div>`}</div>`;
+  const total = f === 'credit' ? `<span class="tag">مجموع ما لهم</span><span class="num" style="color:var(--buy)">${fmt(credit)}</span>`
+    : f === 'zero' ? `<span class="tag">العدد</span><span class="num">${shown.length}</span>`
+      : `<span class="tag">${f === 'all' || f === 'frozen' ? 'مجموع الديون' : 'المجموع'}</span><span class="num owe">${fmt(owed)}</span>`;
+  return page({ title: 'العملاء', body, sub, nav: 'debts', extra: `<span class="sp"></span>${total}` });
 }
 
 function viewReports() {
@@ -808,6 +823,8 @@ function render() {
   if (!ledger) return;
   if (locked) { $v.innerHTML = viewLock(); return; }
   const [name, arg] = route();
+  // الفلتر يُنسى عند الخروج من العملاء (وحساب العميل يُعدّ جزءاً منها فيعود لنفس القائمة)
+  if (!['debts', 'customer', 'record', 'edit'].includes(name)) { ui.debtFilter = 'debt'; ui.debtSort = 'alpha'; ui.debtQ = ''; }
   let html;
   switch (name) {
     case 'record': html = viewRecord(arg); break;
@@ -1172,6 +1189,8 @@ const ACTS = {
       <div class="tag">يمنع الشراء بالآجل فقط. التسديد والمرتجع يعملان كالمعتاد. يرجع الآجل تلقائياً عند انتهاء المدة أو بالسداد حسب اختيارك.</div>
       <div class="two"><button class="btn" data-act="close-ov">إلغاء</button><button class="btn apyes" data-act="frz-yes" data-cid="${cid}">إيقاف الآجل</button></div>`);
   },
+  'debt-filter': (el) => { ui.debtFilter = /** @type {string} */ (el.dataset.k); render(); },
+  'debt-sort': () => { ui.debtSort = ui.debtSort === 'balance' ? 'alpha' : 'balance'; render(); },
   'frz-pick': (el) => { ui.frz = /** @type {string} */ (el.dataset.k); document.querySelectorAll('#frzOpts button').forEach((b) => b.setAttribute('aria-pressed', String(b === el))); },
   'frz-yes': async (el) => {
     const cid = /** @type {string} */ (el.dataset.cid);

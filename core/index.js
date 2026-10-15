@@ -9,5 +9,5 @@ export {
 } from './reports.js';
 export { opsFromLegacy } from './legacy.js';
 export { eventsLog } from './events.js';
-export { waNumber, waSettings, shopInfo, waMessage, waReminder, remSettings, remDue, remOpId, remPlan, riyadhParts, waSkipReason, waStamp, pendingWa } from './notify.js';
+export { waNumber, waSettings, shopInfo, waMessage, waAccountTag, waReminder, remSettings, remDue, remOpId, remPlan, riyadhParts, waSkipReason, waStamp, pendingWa } from './notify.js';
 export * from './license.js';

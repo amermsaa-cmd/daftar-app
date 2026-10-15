@@ -1,6 +1,6 @@
 // @ts-check
 // رسائل الواتساب للعميل: نص الرسالة وقرار الإرسال. يستعملها التطبيق (اليدوي) والجسر (التلقائي).
-import { formatMoney, toLatinDigits } from './util.js';
+import { formatMoney, toLatinDigits, phoneKey } from './util.js';
 
 // عبارة العملية في الرسالة
 const KIND_LINE = { purchase: ['مشترياتك بالآجل', '🛒'], payment: ['تسديدك', '✅'], return: ['مرتجعك', '↩️'] };
@@ -58,6 +58,24 @@ export function waSettings(settings) {
 }
 
 /**
+ * رقم مشترك بين أكثر من عميل (غير مؤرشف)؟ نرجع الاسم الأول للعميل ليظهر في الرسالة «حساب: الاسم»،
+ * فيعرف المستلم أي حساب تخصه الرسالة. العميل برقم لا يشاركه أحد: لا شيء (نص الرسالة كما كان).
+ * @param {import('./ops.js').State} state
+ * @param {string} cid
+ * @returns {string}
+ */
+export function waAccountTag(state, cid) {
+  const c = state.customers.get(cid);
+  if (!c) return '';
+  const key = phoneKey(c.phone);
+  if (key.length < 9) return '';
+  for (const o of state.customers.values()) {
+    if (o.id !== cid && !o.archived && phoneKey(o.phone) === key) return String(c.name || '').trim().split(/\s+/)[0] || '';
+  }
+  return '';
+}
+
+/**
  * نص الرسالة للعميل (بدون اسمه وبدون تحية): اسم البقالة، العملية، الرصيد (اختياري)، التاريخ والوقت.
  * @param {import('./ops.js').State} state
  * @param {string} cid
@@ -68,7 +86,8 @@ export function waMessage(state, cid, lastTxn, nowTs = Date.now()) {
   const c = state.customers.get(cid);
   if (!c) return '';
   const w = waSettings(state.settings);
-  const head = w.shop ? [`🏪 *${w.shop}*`, ''] : [];
+  const acct = waAccountTag(state, cid);
+  const head = [...(w.shop ? [`🏪 *${w.shop}*`] : []), ...(acct ? [`👤 حساب: ${acct}`] : []), ...(w.shop || acct ? [''] : [])];
   /** @type {string[]} */
   const body = [];
   const kind = /** @type {Record<string,string[]>} */ (KIND_LINE)[lastTxn ? lastTxn.kind : ''];
@@ -87,7 +106,7 @@ export function waMessage(state, cid, lastTxn, nowTs = Date.now()) {
  * @param {import('./ops.js').State} state
  * @param {string} cid
  * @param {number} [nowTs]
- * @returns {{ text: string, state: 'debt' | 'zero' | 'credit', amount: number, shop: string, lines: string[], stamp: string } | null}
+ * @returns {{ text: string, state: 'debt' | 'zero' | 'credit', amount: number, shop: string, acct: string, lines: string[], stamp: string } | null}
  */
 export function waReminder(state, cid, nowTs = Date.now()) {
   const c = state.customers.get(cid);
@@ -102,8 +121,9 @@ export function waReminder(state, cid, nowTs = Date.now()) {
   lines.push('شاكرين لكم تعاملكم معنا 🌷');
   const stamp = waStamp(nowTs);
   const icon = st === 'debt' ? '💰 ' : st === 'credit' ? '💰 ' : '✅ ';
-  const text = [...(shop ? [`🏪 *${shop}*`, ''] : []), icon + lines[0].replace(/: ([\d.,٠-٩]+) ريال/, ': *$1* ريال'), ...lines.slice(1), '', `🕐 ${stamp}`].join('\n');
-  return { text, state: st, amount, shop, lines, stamp };
+  const acct = waAccountTag(state, cid);
+  const text = [...(shop ? [`🏪 *${shop}*`] : []), ...(acct ? [`👤 حساب: ${acct}`] : []), ...(shop || acct ? [''] : []), icon + lines[0].replace(/: ([\d.,٠-٩]+) ريال/, ': *$1* ريال'), ...lines.slice(1), '', `🕐 ${stamp}`].join('\n');
+  return { text, state: st, amount, shop, acct, lines, stamp };
 }
 
 /**

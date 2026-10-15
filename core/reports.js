@@ -191,9 +191,10 @@ export function analyticsAging(s, now) {
 /**
  * جدول الديون مع حقول تحليلية، وفلتر اختياري.
  * @param {State} s @param {number} now
- * @param {'debt' | 'over_cap' | 'overdue30' | 'frozen' | 'regular' | 'all'} [filter]
+ * @param {'debt' | 'zero' | 'credit' | 'over_cap' | 'overdue30' | 'frozen' | 'regular' | 'all'} [filter]
+ * @param {'balance' | 'alpha'} [sort]
  */
-export function debtTable(s, now, filter = 'debt') {
+export function debtTable(s, now, filter = 'debt', sort = 'balance') {
   const capOn = !!s.settings.capEnabled;
   const rows = listCustomers(s).map((c) => {
     const cap = capOn ? effectiveCap(c, s.settings) : 0;
@@ -202,10 +203,14 @@ export function debtTable(s, now, filter = 'debt') {
   const pick = {
     all: () => true,
     debt: (/** @type {any} */ r) => r.customer.balance > 0,
+    zero: (/** @type {any} */ r) => r.customer.balance === 0,
+    credit: (/** @type {any} */ r) => r.customer.balance < 0,
     over_cap: (/** @type {any} */ r) => r.overCap,
     overdue30: (/** @type {any} */ r) => r.customer.balance > 0 && r.days > 30,
     frozen: (/** @type {any} */ r) => r.frozen,
     regular: (/** @type {any} */ r) => r.customer.balance > 0 && r.days <= 7,
   }[filter];
-  return rows.filter(pick).sort((a, b) => b.customer.balance - a.customer.balance);
+  const out = rows.filter(pick);
+  // alpha: أبجدي؛ balance: الأعلى رصيداً أولاً (الافتراضي القديم، تعتمد عليه التقارير)
+  return sort === 'alpha' ? out.sort((a, b) => String(a.customer.name).localeCompare(String(b.customer.name), 'ar')) : out.sort((a, b) => b.customer.balance - a.customer.balance);
 }
