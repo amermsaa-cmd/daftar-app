@@ -461,18 +461,14 @@ function viewDebts() {
 
 // ===== نقل الدفتر الورقي: إدخال فردي أو لصق قائمة =====
 const IMP_ERR = { 'name-required': 'بلا اسم', 'bad-amount': 'مبلغ غير صحيح', 'duplicate-name': 'الاسم موجود مسبقاً', 'duplicate-in-list': 'الاسم مكرر في القائمة', license: 'التسجيل متوقف: أدخل كود الاشتراك' };
+/** مجموع الدفعة الجاهزة للإضافة (هللات) */
+const impBatchTotal = () => (ui.impRows || []).filter((r) => !r.error).reduce((a, r) => a + (r.amount || 0), 0);
 function impReconHtml() {
-  const o = openingSummary(ledger.state);
-  const r = reconcileText(o.total, ui.impTotal);
-  return r.state === 'empty' ? '<span class="tag">اكتب مجموع الدفتر الورقي لتتأكد من المطابقة</span>'
+  const r = reconcileText(impBatchTotal(), ui.impTotal);
+  return r.state === 'empty' ? '<span class="tag">اكتب مجموع هذه الدفعة في الدفتر الورقي لتتأكد من المطابقة</span>'
     : `<b style="color:${r.state === 'match' ? 'var(--buy)' : r.state === 'bad' ? 'var(--danger)' : 'var(--pay)'}">${esc(r.text)}</b>`;
 }
 function viewImport() {
-  const o = openingSummary(ledger.state);
-  const sum = `<div class="card stack"><div class="row"><b>ما أُدخل حتى الآن</b><span class="tag">${o.count} عميل برصيد سابق</span></div>
-    <div class="num owe" style="font-size:26px">${fmt(o.total)}<small style="font-size:13px"> ريال</small></div>
-    <div class="form"><label for="impTotal">مجموع الدفتر الورقي (للمطابقة)</label><input id="impTotal" inputmode="decimal" dir="ltr" style="text-align:right" value="${esc(ui.impTotal)}"></div>
-    <div id="impRecon">${impReconHtml()}</div></div>`;
   const tabs = `<div class="imptabs"><button type="button" class="${ui.impTab === 'one' ? 'on' : ''}" data-act="imp-tab" data-k="one">إدخال فردي</button><button type="button" class="${ui.impTab === 'list' ? 'on' : ''}" data-act="imp-tab" data-k="list">لصق قائمة</button></div>`;
   let main = '';
   if (ui.impTab === 'one') {
@@ -496,11 +492,12 @@ function viewImport() {
     const tot = ok.reduce((a, r) => a + (r.amount || 0), 0);
     main = `<div class="stack"><div class="row"><b>${ok.length} صالح${bad ? ` · <span style="color:var(--danger)">${bad} فيه خطأ</span>` : ''}</b><span class="tag">المجموع ${fmt(tot)}</span></div>
       <div class="card stack" style="max-height:46vh;overflow:auto">${rows.map((r) => `<div class="row" style="align-items:center;gap:8px"><div class="nm"><b style="${r.error ? 'color:var(--danger)' : ''}">${esc(r.name || '(بلا اسم)')}</b><small dir="auto">${[r.phone ? esc(r.phone) : '', r.error ? esc(IMP_ERR[r.error] || r.error) + ` (سطر ${r.line})` : r.warn ? 'الجوال مشترك مع عميل آخر' : ''].filter(Boolean).join(' · ')}</small></div><span class="num ${r.error ? '' : 'owe'}">${r.amount ? fmt(r.amount) : '—'}</span></div>`).join('')}</div>
+      <div class="card stack"><div class="form"><label for="impTotal">مجموع هذه الدفعة في الدفتر الورقي (للمطابقة)</label><input id="impTotal" inputmode="decimal" dir="ltr" style="text-align:right" value="${esc(ui.impTotal)}"></div><div id="impRecon">${impReconHtml()}</div></div>
       <div id="formErr"></div>
       <button type="button" class="btn main" data-act="imp-all" ${ok.length ? '' : 'disabled'}>إضافة الكل (${ok.length})</button>
       <button type="button" class="btn" data-act="imp-edit">تعديل النص</button></div>`;
   }
-  return page({ title: 'نقل الدفتر الورقي', back: '#/settings', nav: 'settings', body: `<div class="body">${sum}${ui.impDone ? `<div class="card center" style="color:${ui.impDone.startsWith('✓') ? 'var(--buy)' : 'var(--danger)'}">${esc(ui.impDone)}</div>` : ''}${tabs}${main}</div>` });
+  return page({ title: 'نقل الدفتر الورقي', back: '#/settings', nav: 'settings', body: `<div class="body">${ui.impDone ? `<div class="card center" style="color:${ui.impDone.startsWith('✓') ? 'var(--buy)' : 'var(--danger)'}">${esc(ui.impDone)}</div>` : ''}${tabs}${main}</div>` });
 }
 async function submitImportOne() {
   const g = (/** @type {string} */ id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
@@ -525,7 +522,7 @@ async function importAll() {
   await flush();
   const lic = res.failed.some((f) => f.code === 'license');
   ui.impDone = lic ? 'التسجيل متوقف: أدخل كود الاشتراك' : `✓ أُضيف ${res.added} عميل بمجموع ${fmt(res.total)} ريال${res.failed.length ? ` · تعذّر ${res.failed.length}` : ''}`;
-  ui.impRows = null; ui.impText = '';
+  ui.impRows = null; ui.impText = ''; ui.impTotal = '';
   render();
 }
 
@@ -846,7 +843,7 @@ function viewSettings() {
       <div class="tag">آخر نسخة: ${lastB}</div>
       <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + driveHtml())}
     ${acc('lic', 'key', 'الاشتراك', lc.status, lc.inner)}
-    <a class="acc" href="#/import" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('list')}</span><span class="at"><b>نقل الدفتر الورقي</b><small>${(() => { const o = openingSummary(ledger.state); return o.count ? `${o.count} عميل بأرصدة سابقة` : 'إدخال العملاء وأرصدتهم السابقة'; })()}</small></span>${ic('back')}</span></a>
+    <a class="acc" href="#/import" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('list')}</span><span class="at"><b>نقل الدفتر الورقي</b><small>إدخال العملاء وأرصدتهم السابقة من الدفتر الورقي</small></span>${ic('back')}</span></a>
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
   return page({ title: 'الإعدادات', body, nav: 'settings' });
@@ -1263,7 +1260,7 @@ const ACTS = {
       <div class="two"><button class="btn" data-act="close-ov">إلغاء</button><button class="btn apyes" data-act="frz-yes" data-cid="${cid}">إيقاف الآجل</button></div>`);
   },
   'imp-tab': (el) => { ui.impTab = /** @type {string} */ (el.dataset.k); ui.impDone = ''; render(); },
-  'imp-review': () => { ui.impText = /** @type {HTMLTextAreaElement} */ (document.getElementById('impText')).value; const rows = checkPaperRows(ledger, parsePaperList(ui.impText)); if (!rows.length) { toast('اكتب القائمة أولاً'); return; } ui.impRows = rows; ui.impDone = ''; render(); },
+  'imp-review': () => { ui.impText = /** @type {HTMLTextAreaElement} */ (document.getElementById('impText')).value; const rows = checkPaperRows(ledger, parsePaperList(ui.impText)); if (!rows.length) { toast('اكتب القائمة أولاً'); return; } ui.impRows = rows; ui.impTotal = ''; ui.impDone = ''; render(); },
   'imp-edit': () => { ui.impRows = null; render(); },
   'imp-all': () => importAll(),
   'debt-filter': (el) => { ui.debtFilter = /** @type {string} */ (el.dataset.k); render(); },
