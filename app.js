@@ -21,7 +21,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', addOpen: false, rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -269,7 +269,7 @@ function schedSync(delay = 1500) {
 }
 
 // ===== هيكل الصفحة =====
-const NAV = [['home', 'home', 'الرئيسية'], ['debts', 'list', 'الديون'], ['reports', 'chart', 'التقارير'], ['settings', 'gear', 'الإعدادات']];
+const NAV = [['home', 'home', 'الرئيسية'], ['debts', 'list', 'العملاء'], ['reports', 'chart', 'التقارير'], ['settings', 'gear', 'الإعدادات']];
 
 /** عناصر قائمة ⋮ للشاشة الحالية (لا قائمة = لا زر ⋮) */
 let curMenu = /** @type {{i: string, l: string, d: string, cid?: string}[]} */ ([]);
@@ -413,7 +413,7 @@ function viewAdd() {
     <button class="btn main" type="submit">حفظ العميل</button></form>
     ${hasContacts ? '' : '<div class="tag center">اختيار العميل من جهات الاتصال يعمل على كروم في أندرويد.</div>'}</div>`;
   ui.addPrefill = '';
-  return page({ title: 'إضافة عميل', back: '#/settings', nav: 'settings', body });
+  return page({ title: 'إضافة عميل', back: '#/debts', nav: 'debts', body });
 }
 
 function viewEdit(cid) {
@@ -441,7 +441,7 @@ function viewDebts() {
   const sub = `<div class="herosearch"><div class="field big-field">${ic('search')}<input id="dq" type="search" autocomplete="off" placeholder="ابحث في الجدول" value="${esc(ui.debtQ)}"><a class="addbtn" href="#/add" aria-label="إضافة عميل جديد">${ic('plus')}</a></div></div>`;
   const body = `<div class="body">
     ${list || '<div class="card center tag">لا توجد ديون حالياً</div>'}</div>`;
-  return page({ title: 'جدول الديون', body, sub, nav: 'debts', extra: `<span class="sp"></span><span class="tag">المجموع</span><span class="num owe">${fmt(total)}</span>` });
+  return page({ title: 'العملاء', body, sub, nav: 'debts', extra: `<span class="sp"></span><span class="tag">المجموع</span><span class="num owe">${fmt(total)}</span>` });
 }
 
 function viewReports() {
@@ -743,15 +743,6 @@ function viewSettings() {
   const capOn = !!ledger.state.settings.capEnabled;
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
-  const hasContacts = 'contacts' in navigator && 'ContactsManager' in window;
-  const open = !!ui.addOpen;
-  const sub = `<div class="addhero"><button type="button" class="addtoggle" data-act="toggle-add" aria-expanded="${open}"><span>${ic('user-plus')}إضافة عميل جديد</span>${ic('back')}</button>
-    ${open ? `<form id="addForm" class="addform" autocomplete="off">
-    <input id="f-name" required placeholder="اسم العميل" aria-label="اسم العميل">
-    <div class="two-in"><div class="phonebox"><input id="f-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right" placeholder="رقم الهاتف" aria-label="رقم الهاتف">${hasContacts ? `<button type="button" class="inbtn" data-act="pick-contact" aria-label="من جهات الاتصال">${ic('contacts')}</button>` : ''}</div>
-    <input id="f-open" inputmode="decimal" dir="ltr" style="text-align:right" placeholder="الرصيد السابق" aria-label="الرصيد السابق"></div>
-    <div id="formErr"></div>
-    <button class="save" type="submit">حفظ العميل</button></form>` : ''}</div>`;
   const body = `<div class="body">
     ${licBanner()}
     ${acc('shop', 'home', 'بيانات البقالة', shop.status, shop.inner + dsec('المظهر') + `<div class="two3">${[['auto', 'auto', 'تلقائي'], ['light', 'sun', 'نهاري'], ['dark', 'moon', 'ليلي']].map(([k, i, l]) => `<button class="btn${meta.theme === k ? ' sel' : ''}" data-act="theme" data-t="${k}" aria-pressed="${meta.theme === k}">${ic(i)}${l}</button>`).join('')}</div>`)}
@@ -771,7 +762,7 @@ function viewSettings() {
     ${acc('lic', 'key', 'الاشتراك', lc.status, lc.inner)}
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
-  return page({ title: 'الإعدادات', body, sub, nav: 'settings' });
+  return page({ title: 'الإعدادات', body, nav: 'settings' });
 }
 
 function viewEvents() {
@@ -1158,7 +1149,6 @@ const ACTS = {
   'toggle-lock': () => toggleLock(),
   'toggle-owner': () => toggleOwner(),
   backup: () => backup(),
-  'toggle-add': () => { ui.addOpen = !ui.addOpen; render(); document.getElementById('f-name')?.focus(); },
   acc: (el) => {
     const id = /** @type {string} */ (el.dataset.id); ui.accOpen[id] = !ui.accOpen[id]; render();
     if ((id === 'wa' || id === 'rem') && ui.accOpen[id]) refreshBridge().then(() => render());
