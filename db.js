@@ -78,3 +78,11 @@ export function wipeTraining() {
     if (dbp) dbp.then((d) => { d.close(); go(); }, go); else go();
   });
 }
+
+/** مسح دفتر هذا الجهاز كاملاً (حذف البيانات بعد نسخة إلزامية). */
+export function wipeAll() {
+  return new Promise((resolve) => {
+    const go = () => { const r = indexedDB.deleteDatabase(NAME); r.onsuccess = r.onerror = r.onblocked = () => resolve(undefined); };
+    if (dbp) dbp.then((d) => { d.close(); go(); }, go); else go();
+  });
+}

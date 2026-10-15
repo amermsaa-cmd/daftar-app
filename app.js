@@ -22,7 +22,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', impTab: 'one', impText: '', impRows: /** @type {any[] | null} */ (null), impTotal: '', impDone: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false, trainAsk: false };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', impTab: 'one', impText: '', impRows: /** @type {any[] | null} */ (null), impTotal: '', impDone: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false, trainAsk: false, delAsk: false, delBacked: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -651,6 +651,16 @@ function gdPrepare() {
   gdPrep = gdrive.prepare(getClientId).catch(() => { gdPrep = null; });
 }
 /** كم يوماً مرّ بلا أي نسخة احتياطية (Drive أو واتساب)؟ 0 = لا تنبيه. لا ينطبق مع المزامنة (السيرفر ينسخ). */
+function delHtml() {
+  if (!ui.delAsk) return `<button class="btn" data-act="del-ask">${ic('trash')}حذف بيانات هذا الجهاز</button>`;
+  return `<div class="card stack"><b>حذف بيانات هذا الجهاز</b>
+    <div class="tag">يمسح الدفتر والاشتراك من هذا الجهاز فقط. يجب حفظ نسخة احتياطية أولاً، وبعدها تسترجعها متى شئت.</div>
+    <button class="btn ${ui.delBacked ? '' : 'main'}" data-act="del-backup">${ui.delBacked ? '✓ تم حفظ النسخة' : '١) احفظ نسخة احتياطية أولاً'}</button>
+    <input id="delWord" class="inp" placeholder="٢) اكتب كلمة: حذف" autocomplete="off">
+    <button class="btn" data-act="del-go">٣) احذف نهائياً</button>
+    <button class="btn" data-act="del-cancel">إلغاء</button></div>`;
+}
+
 function backupDueDays() {
   if (TRAIN || meta.syncOn || locked) return 0;
   const last = Math.max(meta.lastBackupAt || 0, meta.drvLocalAt || 0, meta.firstUse || 0);
@@ -844,7 +854,9 @@ function viewSettings() {
       <div class="tag">مطفأ افتراضياً. يسري على كل عميل ليس له سقف خاص (يُحدَّد من «تعديل بيانات العميل»). عند تجاوزه يظهر تنبيه عند تسجيل الشراء. وإيقاف الآجل لعميل من قائمة ⋮ في حسابه.</div>`)}
     ${!lic().features.whatsapp ? '' : acc('wa', 'chat', 'الواتساب', (link.ok && link.state === 'linked' ? 'مربوط ✓ · ' : '') + wa.status, dsec('الربط') + waLinkHtml() + dsec('الرسائل') + wa.inner + dsec('التذكير الشهري') + rem.inner)}
     ${acc('sync', 'save', 'المزامنة والنسخ الاحتياطي', sy.status + (drv.ok && drv.d && drv.d.linked ? (drv.d.state === 'error' || drv.d.failSince ? ' · Drive ⚠' : ' · Drive ✓') : ''), dsec('المزامنة مع السيرفر') + sy.inner + dsec('نسخة احتياطية') + `<button class="btn" data-act="backup">${ic('share')}إرسال عبر واتساب</button>
-      <div class="tag">آخر نسخة: ${lastB}</div>
+      <button class="btn" data-act="restore-file">${ic('undo')}استرجاع من نسخة</button>
+      <div class="tag">آخر نسخة: ${lastB}. الاسترجاع يضيف الناقص فقط ولا يحذف شيئاً.</div>
+      ${TRAIN ? '' : delHtml()}
       <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + driveHtml())}
     ${acc('lic', 'key', 'الاشتراك', lc.status, lc.inner)}
     ${ui.trainAsk ? `<div class="card stack"><b>وضع التدريب</b><div class="tag">يفتح دفتراً تجريبياً منفصلاً فيه 30 عميلاً وهمياً. دفترك الحقيقي لا يتغيّر أبداً، ولا يُرسل واتساب ولا يُزامَن. تقدر ترجع له في أي وقت من زر «إنهاء التدريب».</div><button class="btn main" data-act="train-start">ابدأ التدريب</button><button class="btn" data-act="train-cancel">إلغاء</button></div>` : `<button type="button" class="acc" data-act="train-ask" style="width:100%;text-align:start"><span class="acchead"><span class="ai">${ic('user-plus')}</span><span class="at"><b>وضع التدريب</b><small>دفتر تجريبي بـ 30 عميلاً وهمياً للتدرّب بلا خطر</small></span>${ic('back')}</span></button>`}
@@ -1100,9 +1112,31 @@ async function backup() {
     await db.setMeta('lastBackupAt', meta.lastBackupAt);
     toast('✓ تم تجهيز النسخة الاحتياطية');
     render();
+    return true;
   } catch (e) {
     if (!(e && e.name === 'AbortError')) toast('تعذّر تجهيز النسخة');
+    return false;
   }
+}
+
+/** استرجاع من ملف نسخة: دمج فقط، لا يحذف شيئاً ولا يكرر. */
+function restoreFromFile() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const list = Array.isArray(data) ? data : data && Array.isArray(data.ops) ? data.ops : null;
+      if (!list) { toast('الملف ليس نسخة من دفتر الأجل'); return; }
+      const { added, rejected } = ledger.merge(list);
+      await flush();
+      toast(added.length ? `✓ تم استرجاع ${added.length} عملية` + (rejected ? ` (تعذّر ${rejected})` : '') : 'لا جديد في هذه النسخة، كل شيء موجود', 5000);
+      render();
+    } catch { toast('تعذّر قراءة الملف'); }
+  };
+  inp.click();
 }
 
 async function toggleLock() {
@@ -1382,6 +1416,16 @@ const ACTS = {
     ui.syncKeyPending = key;
     sheet(`<div class="banner" style="font-size:16px;line-height:1.8;padding:16px 12px;font-weight:600">سيتم ربط هذا الجوال ببقالتك ودمج دفتره مع الدفتر الموجود على السيرفر. لا يُحذف شيء.</div>
       <div class="two"><button data-act="close-ov">رجوع</button><button class="go" data-act="sync-confirm">ربط</button></div>`, '', true);
+  },
+  'restore-file': () => restoreFromFile(),
+  'del-ask': () => { ui.delAsk = true; ui.delBacked = false; render(); },
+  'del-cancel': () => { ui.delAsk = false; ui.delBacked = false; render(); },
+  'del-backup': async () => { if (await backup()) { ui.delBacked = true; render(); } },
+  'del-go': async () => {
+    const w = /** @type {HTMLInputElement | null} */ (document.getElementById('delWord'));
+    if (!ui.delBacked) { toast('احفظ النسخة الاحتياطية أولاً'); return; }
+    if (!w || w.value.trim() !== 'حذف') { toast('اكتب كلمة «حذف» للتأكيد'); return; }
+    await db.wipeAll(); location.hash = '#/home'; location.reload();
   },
   'train-ask': () => { ui.trainAsk = true; render(); },
   'train-cancel': () => { ui.trainAsk = false; render(); },
