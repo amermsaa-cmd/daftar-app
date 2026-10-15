@@ -10,4 +10,5 @@ export {
 export { opsFromLegacy } from './legacy.js';
 export { eventsLog } from './events.js';
 export { waNumber, waSettings, shopInfo, waMessage, waAccountTag, waReminder, remSettings, remDue, remOpId, remPlan, riyadhParts, waSkipReason, waStamp, pendingWa } from './notify.js';
+export { parsePaperList, checkPaperRows, importPaperRows, openingSummary, reconcileText } from './import.js';
 export * from './license.js';

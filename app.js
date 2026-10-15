@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, isFrozenNow, effectiveCap, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, waMessage as coreWaMessage, waAccountTag, waReminder, pendingWa,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, parsePaperList, checkPaperRows, importPaperRows, openingSummary, reconcileText, waMessage as coreWaMessage, waAccountTag, waReminder, pendingWa,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -21,7 +21,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', impTab: 'one', impText: '', impRows: /** @type {any[] | null} */ (null), impTotal: '', impDone: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -306,7 +306,7 @@ function recentOpsHtml() {
 
 function resultsHtml(q) {
   if (!q.trim()) {
-    if (!ledger.state.customers.size) return `<div class="card center stack"><div>لا يوجد عملاء بعد</div><a class="btn main" href="#/add">${ic('user-plus')}إضافة أول عميل</a></div>`;
+    if (!ledger.state.customers.size) return `<div class="card center stack"><div>لا يوجد عملاء بعد</div><a class="btn main" href="#/add">${ic('user-plus')}إضافة أول عميل</a><a class="btn" href="#/import">نقل الدفتر الورقي</a></div>`;
     return recentOpsHtml() || '<div class="card center tag">ابحث عن عميل أو امسح بطاقته لتسجيل عملية</div>';
   }
   const list = ledger.search(q);
@@ -457,6 +457,76 @@ function viewDebts() {
     : f === 'zero' ? `<span class="tag">العدد</span><span class="num">${shown.length}</span>`
       : `<span class="tag">${f === 'all' || f === 'frozen' ? 'مجموع الديون' : 'المجموع'}</span><span class="num owe">${fmt(owed)}</span>`;
   return page({ title: 'العملاء', body, sub, nav: 'debts', extra: `<span class="sp"></span>${total}` });
+}
+
+// ===== نقل الدفتر الورقي: إدخال فردي أو لصق قائمة =====
+const IMP_ERR = { 'name-required': 'بلا اسم', 'bad-amount': 'مبلغ غير صحيح', 'duplicate-name': 'الاسم موجود مسبقاً', 'duplicate-in-list': 'الاسم مكرر في القائمة', license: 'التسجيل متوقف: أدخل كود الاشتراك' };
+function impReconHtml() {
+  const o = openingSummary(ledger.state);
+  const r = reconcileText(o.total, ui.impTotal);
+  return r.state === 'empty' ? '<span class="tag">اكتب مجموع الدفتر الورقي لتتأكد من المطابقة</span>'
+    : `<b style="color:${r.state === 'match' ? 'var(--buy)' : r.state === 'bad' ? 'var(--danger)' : 'var(--pay)'}">${esc(r.text)}</b>`;
+}
+function viewImport() {
+  const o = openingSummary(ledger.state);
+  const sum = `<div class="card stack"><div class="row"><b>ما أُدخل حتى الآن</b><span class="tag">${o.count} عميل برصيد سابق</span></div>
+    <div class="num owe" style="font-size:26px">${fmt(o.total)}<small style="font-size:13px"> ريال</small></div>
+    <div class="form"><label for="impTotal">مجموع الدفتر الورقي (للمطابقة)</label><input id="impTotal" inputmode="decimal" dir="ltr" style="text-align:right" value="${esc(ui.impTotal)}"></div>
+    <div id="impRecon">${impReconHtml()}</div></div>`;
+  const tabs = `<div class="imptabs"><button type="button" class="${ui.impTab === 'one' ? 'on' : ''}" data-act="imp-tab" data-k="one">إدخال فردي</button><button type="button" class="${ui.impTab === 'list' ? 'on' : ''}" data-act="imp-tab" data-k="list">لصق قائمة</button></div>`;
+  let main = '';
+  if (ui.impTab === 'one') {
+    main = `<form id="impForm" class="stack" autocomplete="off">
+      <div class="form"><label for="i-name">اسم العميل</label><input id="i-name" required></div>
+      <div class="form"><label for="i-phone">رقم الجوال (اختياري)</label><input id="i-phone" type="tel" inputmode="tel" dir="ltr" style="text-align:right"></div>
+      <div class="form"><label for="i-open">الرصيد السابق (اختياري)</label><input id="i-open" inputmode="decimal" dir="ltr" style="text-align:right"></div>
+      <div id="formErr"></div>
+      <button class="btn main" type="submit">حفظ والتالي</button></form>`;
+  } else if (!ui.impRows) {
+    main = `<div class="stack"><div class="tag">اكتب أو الصق القائمة: سطر لكل عميل، «الاسم ثم الجوال (اختياري) ثم الرصيد». مثال:</div>
+      <div class="card tag" dir="rtl" style="white-space:pre-line">ابو انس 1712.20
+ام انس 0501234567 1013.60
+عامر 832</div>
+      <textarea id="impText" class="keyin" rows="9" placeholder="الصق القائمة هنا" style="min-height:160px;font-family:inherit;font-size:15px">${esc(ui.impText)}</textarea>
+      <button type="button" class="btn main" data-act="imp-review">مراجعة القائمة</button></div>`;
+  } else {
+    const rows = ui.impRows;
+    const ok = rows.filter((r) => !r.error);
+    const bad = rows.length - ok.length;
+    const tot = ok.reduce((a, r) => a + (r.amount || 0), 0);
+    main = `<div class="stack"><div class="row"><b>${ok.length} صالح${bad ? ` · <span style="color:var(--danger)">${bad} فيه خطأ</span>` : ''}</b><span class="tag">المجموع ${fmt(tot)}</span></div>
+      <div class="card stack" style="max-height:46vh;overflow:auto">${rows.map((r) => `<div class="row" style="align-items:center;gap:8px"><div class="nm"><b style="${r.error ? 'color:var(--danger)' : ''}">${esc(r.name || '(بلا اسم)')}</b><small dir="auto">${[r.phone ? esc(r.phone) : '', r.error ? esc(IMP_ERR[r.error] || r.error) + ` (سطر ${r.line})` : r.warn ? 'الجوال مشترك مع عميل آخر' : ''].filter(Boolean).join(' · ')}</small></div><span class="num ${r.error ? '' : 'owe'}">${r.amount ? fmt(r.amount) : '—'}</span></div>`).join('')}</div>
+      <div id="formErr"></div>
+      <button type="button" class="btn main" data-act="imp-all" ${ok.length ? '' : 'disabled'}>إضافة الكل (${ok.length})</button>
+      <button type="button" class="btn" data-act="imp-edit">تعديل النص</button></div>`;
+  }
+  return page({ title: 'نقل الدفتر الورقي', back: '#/settings', nav: 'settings', body: `<div class="body">${sum}${ui.impDone ? `<div class="card center" style="color:${ui.impDone.startsWith('✓') ? 'var(--buy)' : 'var(--danger)'}">${esc(ui.impDone)}</div>` : ''}${tabs}${main}</div>` });
+}
+async function submitImportOne() {
+  const g = (/** @type {string} */ id) => /** @type {HTMLInputElement} */ (document.getElementById(id));
+  const open = g('i-open').value;
+  const opening = open.trim() ? toHalalas(open) : null;
+  if (open.trim() && !opening) { toast('الرصيد السابق غير صحيح'); return; }
+  const name = g('i-name').value;
+  const ph = g('i-phone').value;
+  const go = async (/** @type {boolean} */ force) => {
+    try {
+      const { customer } = ledger.addCustomer({ name, phone: ph, opening, force });
+      await flush();
+      ui.impDone = `✓ أُضيف ${customer.name}${opening ? ' برصيد ' + fmt(opening) : ''}`;
+      render();
+      g('i-name')?.focus();
+    } catch (e) { showFormError(e, () => go(true)); }
+  };
+  await go(false);
+}
+async function importAll() {
+  const res = importPaperRows(ledger, ui.impRows || []);
+  await flush();
+  const lic = res.failed.some((f) => f.code === 'license');
+  ui.impDone = lic ? 'التسجيل متوقف: أدخل كود الاشتراك' : `✓ أُضيف ${res.added} عميل بمجموع ${fmt(res.total)} ريال${res.failed.length ? ` · تعذّر ${res.failed.length}` : ''}`;
+  ui.impRows = null; ui.impText = '';
+  render();
 }
 
 function viewReports() {
@@ -776,6 +846,7 @@ function viewSettings() {
       <div class="tag">آخر نسخة: ${lastB}</div>
       <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + driveHtml())}
     ${acc('lic', 'key', 'الاشتراك', lc.status, lc.inner)}
+    <a class="acc" href="#/import" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('list')}</span><span class="at"><b>نقل الدفتر الورقي</b><small>${(() => { const o = openingSummary(ledger.state); return o.count ? `${o.count} عميل بأرصدة سابقة` : 'إدخال العملاء وأرصدتهم السابقة'; })()}</small></span>${ic('back')}</span></a>
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
   return page({ title: 'الإعدادات', body, nav: 'settings' });
@@ -825,6 +896,7 @@ function render() {
   const [name, arg] = route();
   // الفلتر يُنسى عند الخروج من العملاء (وحساب العميل يُعدّ جزءاً منها فيعود لنفس القائمة)
   if (!['debts', 'customer', 'record', 'edit'].includes(name)) { ui.debtFilter = 'debt'; ui.debtSort = 'alpha'; ui.debtQ = ''; }
+  if (name !== 'import') { ui.impDone = ''; ui.impRows = null; }
   let html;
   switch (name) {
     case 'record': html = viewRecord(arg); break;
@@ -835,6 +907,7 @@ function render() {
     case 'reports': html = viewReports(); break;
     case 'settings': html = viewSettings(); break;
     case 'events': html = viewEvents(); break;
+    case 'import': html = viewImport(); break;
     default: html = viewHome();
   }
   // نحفظ مكان التمرير عند إعادة رسم نفس الشاشة (حتى لا تقفز الصفحة للأعلى)، ونبدأ من الأعلى عند تغيّر الشاشة
@@ -1189,6 +1262,10 @@ const ACTS = {
       <div class="tag">يمنع الشراء بالآجل فقط. التسديد والمرتجع يعملان كالمعتاد. يرجع الآجل تلقائياً عند انتهاء المدة أو بالسداد حسب اختيارك.</div>
       <div class="two"><button class="btn" data-act="close-ov">إلغاء</button><button class="btn apyes" data-act="frz-yes" data-cid="${cid}">إيقاف الآجل</button></div>`);
   },
+  'imp-tab': (el) => { ui.impTab = /** @type {string} */ (el.dataset.k); ui.impDone = ''; render(); },
+  'imp-review': () => { ui.impText = /** @type {HTMLTextAreaElement} */ (document.getElementById('impText')).value; const rows = checkPaperRows(ledger, parsePaperList(ui.impText)); if (!rows.length) { toast('اكتب القائمة أولاً'); return; } ui.impRows = rows; ui.impDone = ''; render(); },
+  'imp-edit': () => { ui.impRows = null; render(); },
+  'imp-all': () => importAll(),
   'debt-filter': (el) => { ui.debtFilter = /** @type {string} */ (el.dataset.k); render(); },
   'debt-sort': () => { ui.debtSort = ui.debtSort === 'balance' ? 'alpha' : 'balance'; render(); },
   'frz-pick': (el) => { ui.frz = /** @type {string} */ (el.dataset.k); document.querySelectorAll('#frzOpts button').forEach((b) => b.setAttribute('aria-pressed', String(b === el))); },
@@ -1377,6 +1454,7 @@ document.addEventListener('input', (e) => {
     clearTimeout(waShopTimer);
     waShopTimer = window.setTimeout(() => saveShop(t), 600);
   }
+  if (t.id === 'impTotal') { t.value = toLatin(t.value); ui.impTotal = t.value; const r = document.getElementById('impRecon'); if (r) r.innerHTML = impReconHtml(); }
   if (t.id === 'linkPhone') ui.linkPhone = toLatin(t.value);
   if (t.id === 'waText') { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
   if (t.id === 'q' || t.id === 'dq') t.value = toLatin(t.value);
@@ -1393,6 +1471,7 @@ document.addEventListener('submit', (e) => {
   e.preventDefault();
   const f = /** @type {HTMLFormElement} */ (e.target);
   if (f.id === 'addForm') submitAdd();
+  if (f.id === 'impForm') submitImportOne();
   if (f.id === 'editForm') submitEdit(/** @type {string} */ (f.dataset.cid));
 });
 

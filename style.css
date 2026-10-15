@@ -320,3 +320,5 @@ button.card{font:inherit;color:inherit}
 .herosearch.hasq .cl,.herosearch.hasq .pills,.herosearch.hasq .moreb{display:none}
 
 textarea.keyin{resize:vertical;min-height:84px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.5}
+
+.imptabs{display:flex;gap:8px}.imptabs button{flex:1;border:1px solid var(--line,#cfd8e3);background:transparent;color:inherit;font:inherit;font-weight:700;padding:11px;border-radius:12px;cursor:pointer}.imptabs button.on{background:var(--buy);color:var(--buy-ink);border-color:var(--buy)}
