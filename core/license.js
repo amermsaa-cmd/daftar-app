@@ -139,6 +139,12 @@ export function createLicenseManager({ verify, machine, storage, extraCodes = ()
     const best = newestValid([st.code].concat(extraCodes()));
     return best && best.issuedAt >= st.maxIssued && best.services[app] && best.services[app].pack !== 'basic' ? best.shopKey : '';
   }
+  /** كود الاشتراك الصالح الحالي (لإرساله للسيرفر مع المزامنة)؛ فارغ للأساسية أو إن لم يوجد. */
+  function rawCode() {
+    const st = stored();
+    const best = newestValid([st.code].concat(extraCodes()));
+    return best && best.issuedAt >= st.maxIssued && best.services[app] && best.services[app].pack !== 'basic' ? best.raw : '';
+  }
   const isReadOnly = () => { try { return status().state === 'readonly'; } catch { return false; } };
   /** هل يُسمح بالتسجيل؟ @returns {{ok: boolean, message: string}} */
   const canWrite = () => { const s = status(); return s.state === 'readonly' ? { ok: false, message: s.message } : { ok: true, message: '' }; };
@@ -154,7 +160,7 @@ export function createLicenseManager({ verify, machine, storage, extraCodes = ()
     onAccepted(lic.raw);
     return lic;
   }
-  return { status, isReadOnly, canWrite, activate, shopKey };
+  return { status, isReadOnly, canWrite, activate, shopKey, rawCode };
 }
 
 const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';

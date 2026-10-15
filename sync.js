@@ -42,8 +42,11 @@ export class SyncClient {
    * @param {SyncStore} o.store
    * @param {typeof fetch} o.fetchFn
    * @param {(added: number) => Promise<void>} [o.onPulled]  تُستدعى بعد إضافة عمليات من السيرفر (لحفظها وإعادة العرض)
+   * @param {() => string} [o.license]  كود الاشتراك الحالي (يُرسل مع كل طلب)
    */
-  constructor({ baseUrl, key, ledger, store, fetchFn, onPulled = async () => {} }) {
+  constructor({ baseUrl, key, ledger, store, fetchFn, onPulled = async () => {}, license = () => '' }) {
+    /** @type {() => string} */
+    this.license = license; // كود الاشتراك الحالي: يُرسل مع كل طلب ليعرف السيرفر تاريخ انتهاء البقالة
     this.baseUrl = baseUrl;
     this.key = key.trim();
     this.ledger = ledger;
@@ -68,9 +71,10 @@ export class SyncClient {
 
   /** @param {string} path @param {RequestInit} [init] */
   async _req(path, init = {}) {
-    const res = await this.fetchFn(this.baseUrl + path, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${this.key}` } });
+    const res = await this.fetchFn(this.baseUrl + path, { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${this.key}`, ...(this.license() ? { 'X-License': this.license() } : {}) } });
     if (res.status === 401) throw Object.assign(new Error('unauthorized'), { state: 'unauthorized' });
     if (res.status === 403) throw Object.assign(new Error('disabled'), { state: 'disabled' });
+    if (res.status === 402) throw Object.assign(new Error('expired'), { state: 'expired' });
     if (!res.ok) throw Object.assign(new Error('http-' + res.status), { state: 'error' });
     return res.json();
   }

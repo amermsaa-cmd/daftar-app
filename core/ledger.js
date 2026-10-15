@@ -109,16 +109,16 @@ export class Ledger {
   }
 
   /**
-   * إضافة عميل. يرفض الاسم أو الجوال المكرر (إلا لو force=true بعد تأكيد الموظف).
+   * إضافة عميل. الاسم يجب أن يكون مميزاً دائماً (لا يتجاوزه force، ويشمل العملاء المؤرشفين). الجوال المكرر يُسمح به فقط بـ force=true بعد تأكيد الموظف.
    * @param {{name: string, phone?: string | null, cap?: number | null, opening?: number | null, legacyCode?: string | null, codeNo?: number | null, by?: string | null, force?: boolean}} input
    * @returns {{customer: Customer, ops: Op[]}}
    */
   addCustomer(input) {
     const name = (input.name || '').trim();
     if (!name) throw new LedgerError('name-required');
+    const dupName = this.findDuplicateName(name);
+    if (dupName) throw new LedgerError('duplicate-name', { customer: dupName });
     if (!input.force) {
-      const dupName = this.findDuplicateName(name);
-      if (dupName) throw new LedgerError('duplicate-name', { customer: dupName });
       if (input.phone && input.phone.trim()) {
         const dupPhone = this.findDuplicatePhone(input.phone);
         if (dupPhone) throw new LedgerError('duplicate-phone', { customer: dupPhone });
@@ -153,7 +153,7 @@ export class Ledger {
     if (patch.name !== undefined) {
       const name = patch.name.trim();
       if (!name) throw new LedgerError('name-required');
-      if (!patch.force && normalizeName(name) !== normalizeName(c.name)) {
+      if (compactName(name) !== compactName(c.name)) { // الاسم المميز إلزامي حتى مع force (يسمح فقط بإبقاء اسم مكرر قديم كما هو)
         const dup = this.findDuplicateName(name, cid);
         if (dup) throw new LedgerError('duplicate-name', { customer: dup });
       }

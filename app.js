@@ -235,7 +235,7 @@ function startSync() {
   if (!meta.syncOn || !meta.syncKey) return;
   syncClient = new SyncClient({
     baseUrl: SYNC_URL, key: meta.syncKey, ledger, store: syncStore,
-    fetchFn: (u, i) => fetch(u, i),
+    fetchFn: (u, i) => fetch(u, i), license: () => (license ? license.rawCode() : ''),
     onPulled: async () => {
       await flush();
       // لا نعيد رسم الشاشة والمستخدم يكتب في خانة، حتى لا يضيع ما كتبه
@@ -466,6 +466,7 @@ const SYNC_MSG = {
   offline: ['لا يوجد إنترنت: ستُرسل العمليات عند عودته', 'warn'],
   unauthorized: ['المفتاح غير صالح. اطلب مفتاحاً جديداً من إدارة الخدمة', 'bad'],
   disabled: ['الخدمة موقوفة لهذه البقالة', 'bad'],
+  expired: ['انتهى الاشتراك: توقفت المزامنة. أدخل كود تفعيل جديد من الاشتراك', 'bad'],
   error: ['تعذّر الاتصال بالسيرفر، سنحاول لاحقاً', 'warn'],
 };
 
@@ -871,7 +872,7 @@ async function requireOwner() {
 // ===== عمليات =====
 const ERR = {
   'name-required': 'اكتب اسم العميل',
-  'duplicate-name': 'يوجد عميل بنفس الاسم',
+  'duplicate-name': 'هذا الاسم مستخدم لعميل آخر. اكتب اسماً مميزاً (أضف اسم الأب أو الحي مثلاً)',
   'duplicate-phone': 'يوجد عميل بنفس رقم الجوال',
   archived: 'هذا العميل مؤرشف',
   'bad-amount': 'المبلغ غير صحيح',
@@ -920,7 +921,7 @@ function showFormError(e, retry) {
   const msg = e instanceof LedgerError ? (ERR[e.code] || e.code) : 'تعذّر الحفظ';
   const dup = e instanceof LedgerError && e.details.customer;
   box.innerHTML = `<div class="err">${esc(msg)}${dup ? `: ${esc(e.details.customer.name)} (رقم ${e.details.customer.codeNo})` : ''}</div>` +
-    (dup ? '<button type="button" class="btn" id="forceBtn" style="margin-top:8px;width:100%">حفظ رغم التكرار</button>' : '');
+    (dup && e.code === 'duplicate-phone' ? '<button type="button" class="btn" id="forceBtn" style="margin-top:8px;width:100%">حفظ رغم التكرار</button>' : '');
   document.getElementById('forceBtn')?.addEventListener('click', retry);
 }
 
@@ -1335,7 +1336,7 @@ const ACTS = {
     /** @type {Record<string, any>} */
     const patch = { force: true };
     for (const c of ev.changes) patch[c.field] = c.from;
-    try { ledger.updateCustomer(ev.cid, patch); await flush(); toast('✓ تم استرجاع القيم السابقة'); } catch { toast('تعذّر الاسترجاع'); }
+    try { ledger.updateCustomer(ev.cid, patch); await flush(); toast('✓ تم استرجاع القيم السابقة'); } catch (e) { toast(e instanceof LedgerError && e.code === 'duplicate-name' ? 'تعذّر الاسترجاع: الاسم السابق صار مستخدماً لعميل آخر' : 'تعذّر الاسترجاع'); }
     render();
   },
   unlock: () => tryUnlock(),
