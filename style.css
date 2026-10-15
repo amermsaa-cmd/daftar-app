@@ -310,7 +310,7 @@ button.card{font:inherit;color:inherit}
 .big-field .kbtog{width:56px;height:56px;margin:0;border-radius:14px;background:var(--buy);color:var(--buy-ink);font-size:19px;padding:0}
 .cl{margin:14px 2px 8px;font-size:12px;color:#8fa0b2}
 .pills{display:flex;flex-wrap:wrap;gap:7px;padding-bottom:4px}
-.pill-c{background:rgba(255,255,255,.1);color:#e7edf3;border-radius:99px;padding:7px 14px;font-size:14px;font-weight:600;text-decoration:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill-c{border:0;outline:0;-webkit-appearance:none;appearance:none;font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparent;background:rgba(255,255,255,.1);color:#e7edf3;border-radius:99px;padding:7px 14px;font-size:14px;font-weight:600;text-decoration:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pill-c.on{background:#3ebd93;color:#0b1a14}
 .pill-c.sortc{background:transparent;border:1px dashed rgba(255,255,255,.35)}
 .dpills{margin-top:12px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dpills .pill-c{flex:none}
