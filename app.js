@@ -2,7 +2,7 @@
 // القلب (packages/core) يحسب كل شيء من سجل العمليات، وهذا الملف واجهة فقط.
 import {
   Ledger, LedgerError, isFrozenNow, effectiveCap, toHalalas, formatMoney, shortId,
-  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, parsePaperList, checkPaperRows, importPaperRows, openingSummary, reconcileText, waMessage as coreWaMessage, waAccountTag, waReminder, pendingWa,
+  statement, debtTable, analyticsSummary, eventsLog, waNumber, waSettings, shopInfo, waStamp, remSettings, remPlan, remDue, riyadhParts, seedTraining, parsePaperList, checkPaperRows, importPaperRows, openingSummary, reconcileText, waMessage as coreWaMessage, waAccountTag, waReminder, pendingWa,
 } from './core/index.js';
 import * as db from './db.js';
 import * as lock from './lock.js';
@@ -13,6 +13,7 @@ import { initLicense } from './license.js';
 import * as gdrive from './gdrive.js';
 
 const VERSION = '0.2.0';
+const TRAIN = db.isTraining();
 const RELOCK_MS = 5 * 60 * 1000;
 
 /** @type {Ledger} */
@@ -21,7 +22,7 @@ const meta = { deviceId: '', lockEnabled: false, credId: null, ownerRequired: fa
 const saved = new Set();
 let locked = false;
 let hiddenAt = 0;
-const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', impTab: 'one', impText: '', impRows: /** @type {any[] | null} */ (null), impTotal: '', impDone: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false };
+const ui = { accOpen: /** @type {Record<string, boolean>} */ ({}), syncSetup: false, syncKeyPending: '', rec: null, cust: { all: false }, editOk: null, addPrefill: '', impTab: 'one', impText: '', impRows: /** @type {any[] | null} */ (null), impTotal: '', impDone: '', debtQ: '', debtFilter: 'debt', debtSort: 'alpha', remConfirm: false, remOpen: false, frz: 'open', linkMode: 'code', linkPhone: '', linkAsked: 0, drvAsked: 0, drvConfirm: false, trainAsk: false };
 
 const $app = /** @type {HTMLElement} */ (document.getElementById('app'));
 $app.innerHTML = '<div id="v"></div><div id="ov"></div>';
@@ -63,6 +64,7 @@ let licAt = 0;
 const NO_LIC = { state: 'active', licensed: false, features: { sync: false, whatsapp: false }, keyFromCode: false, message: '', pack: 'basic', packLabel: '', daysLeft: 0, expires: '', trial: false };
 /** يحسب الباقة ويضبط المزامنة: مفتاح الكود أولاً، ثم المفتاح اليدوي إن سمحت الباقة، وإلا لا مزامنة. */
 function applyLicense(force = false) {
+  if (TRAIN) { meta.syncOn = false; meta.syncKey = ''; return NO_LIC; } // التدريب: بلا مزامنة ولا واتساب ولا Drive
   if (!license) return NO_LIC;
   if (!force && meta.lic && Date.now() - licAt < 30000) return meta.lic;
   licAt = Date.now();
@@ -278,8 +280,9 @@ function page({ title, back = '', body, nav = '', extra = '', style = '', sub = 
   const navHtml = nav ? `<nav class="nav">${NAV.map(([r, i, l]) => `<a href="#/${r}" class="${nav === r ? 'on' : ''}">${ic(i)}${l}</a>`).join('')}</nav>` : '';
   const top = `<div class="top">${back ? `<button class="back" data-act="back" data-to="${back}" aria-label="رجوع">${ic('back')}</button>` : ''}${title}${extra}
       ${menu.length ? `<button class="dotsbtn" data-act="menu" aria-label="القائمة">${ic('dots')}</button>` : ''}</div>`;
+  const tb = TRAIN ? `<div class="trainbar"><span>${ic('list')} وضع التدريب · بيانات وهمية</span><button type="button" data-act="train-end">إنهاء التدريب</button></div>` : '';
   return `<div class="pg" style="${style}">
-    ${sub ? `<div class="rechead">${top}${sub}</div>` : top}
+    ${tb}${sub ? `<div class="rechead">${top}${sub}</div>` : top}
     ${body}${navHtml}</div>`;
 }
 
@@ -649,7 +652,7 @@ function gdPrepare() {
 }
 /** كم يوماً مرّ بلا أي نسخة احتياطية (Drive أو واتساب)؟ 0 = لا تنبيه. لا ينطبق مع المزامنة (السيرفر ينسخ). */
 function backupDueDays() {
-  if (meta.syncOn || locked) return 0;
+  if (TRAIN || meta.syncOn || locked) return 0;
   const last = Math.max(meta.lastBackupAt || 0, meta.drvLocalAt || 0, meta.firstUse || 0);
   const d = Math.floor((Date.now() - last) / 86400000);
   return d >= 1 ? d : 0;
@@ -826,6 +829,7 @@ function viewSettings() {
   const capOn = !!ledger.state.settings.capEnabled;
   const evCount = eventsLog(ledger.allOps()).length;
   const lastB = meta.lastBackupAt ? fullFmt.format(meta.lastBackupAt) : 'لم تؤخذ نسخة بعد';
+  if (TRAIN) return page({ title: 'الإعدادات', nav: 'settings', body: `<div class="body"><div class="card stack"><b>أنت في وضع التدريب</b><div class="tag">جرّب كل الشاشات بحرية: تسجيل شراء وتسديد ومرتجع، البحث، الديون، التقارير. كل شيء هنا وهمي ومنفصل عن دفترك الحقيقي، ولا يُرسل واتساب ولا يُزامَن.</div><button class="btn main" data-act="train-end">إنهاء التدريب والعودة لدفترك</button></div></div>` });
   const body = `<div class="body">
     ${licBanner()}
     ${acc('shop', 'home', 'بيانات البقالة', shop.status, shop.inner + dsec('المظهر') + `<div class="two3">${[['auto', 'auto', 'تلقائي'], ['light', 'sun', 'نهاري'], ['dark', 'moon', 'ليلي']].map(([k, i, l]) => `<button class="btn${meta.theme === k ? ' sel' : ''}" data-act="theme" data-t="${k}" aria-pressed="${meta.theme === k}">${ic(i)}${l}</button>`).join('')}</div>`)}
@@ -843,6 +847,7 @@ function viewSettings() {
       <div class="tag">آخر نسخة: ${lastB}</div>
       <div class="tag" id="persistTag">التخزين الدائم: ...</div>` + dsec('Google Drive') + driveHtml())}
     ${acc('lic', 'key', 'الاشتراك', lc.status, lc.inner)}
+    ${ui.trainAsk ? `<div class="card stack"><b>وضع التدريب</b><div class="tag">يفتح دفتراً تجريبياً منفصلاً فيه 30 عميلاً وهمياً. دفترك الحقيقي لا يتغيّر أبداً، ولا يُرسل واتساب ولا يُزامَن. تقدر ترجع له في أي وقت من زر «إنهاء التدريب».</div><button class="btn main" data-act="train-start">ابدأ التدريب</button><button class="btn" data-act="train-cancel">إلغاء</button></div>` : `<button type="button" class="acc" data-act="train-ask" style="width:100%;text-align:start"><span class="acchead"><span class="ai">${ic('user-plus')}</span><span class="at"><b>وضع التدريب</b><small>دفتر تجريبي بـ 30 عميلاً وهمياً للتدرّب بلا خطر</small></span>${ic('back')}</span></button>`}
     <a class="acc" href="#/import" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('list')}</span><span class="at"><b>نقل الدفتر الورقي</b><small>إدخال العملاء وأرصدتهم السابقة من الدفتر الورقي</small></span>${ic('back')}</span></a>
     <a class="acc" href="#/events" style="text-decoration:none;color:inherit"><span class="acchead"><span class="ai">${ic('clock')}</span><span class="at"><b>الأحداث</b><small>${evCount ? evCount + ' حدث (عكس وتعديل وإيقاف واستثناءات)' : 'لا توجد أحداث بعد'}</small></span>${ic('back')}</span></a>
     <div class="tag center">دفتر الأجل ${VERSION} · الجهاز ${esc(meta.deviceId)}</div></div>`;
@@ -1378,6 +1383,10 @@ const ACTS = {
     sheet(`<div class="banner" style="font-size:16px;line-height:1.8;padding:16px 12px;font-weight:600">سيتم ربط هذا الجوال ببقالتك ودمج دفتره مع الدفتر الموجود على السيرفر. لا يُحذف شيء.</div>
       <div class="two"><button data-act="close-ov">رجوع</button><button class="go" data-act="sync-confirm">ربط</button></div>`, '', true);
   },
+  'train-ask': () => { ui.trainAsk = true; render(); },
+  'train-cancel': () => { ui.trainAsk = false; render(); },
+  'train-start': () => { db.setTraining(true); location.hash = '#/home'; location.reload(); },
+  'train-end': async () => { db.setTraining(false); await db.wipeTraining(); location.hash = '#/home'; location.reload(); },
   'go-lic': () => { ui.accOpen.lic = true; if (route()[0] === 'settings') render(); else location.hash = '#/settings'; },
   'lic-copy': async () => { try { await navigator.clipboard.writeText(license.deviceCode); toast('✓ نُسخ رمز الجهاز'); } catch { toast('رمز الجهاز: ' + license.deviceCode, 8000); } },
   'lic-activate': async () => {
@@ -1509,9 +1518,11 @@ async function boot() {
   meta.syncLastAt = await db.getMeta('syncLastAt', 0);
   meta.syncPushed = new Set(await db.getMeta('syncPushed', []));
   ledger = new Ledger({ deviceId, ops });
-  ledger.writeGuard = () => license.canWrite(); // انتهاء الاشتراك = قراءة فقط (العرض والتقارير والنسخ تبقى)
+  ledger.writeGuard = TRAIN ? null : () => license.canWrite(); // انتهاء الاشتراك = قراءة فقط (العرض والتقارير والنسخ تبقى)
   applyLicense(true);
-  for (const id of ledger.opIds()) saved.add(id);
+  if (TRAIN && !ops.length) seedTraining(ledger);
+  for (const id of ledger.opIds()) if (!TRAIN) saved.add(id);
+  if (TRAIN) await flush();
   applyTheme();
   db.requestPersistence();
   if ('serviceWorker' in navigator) {

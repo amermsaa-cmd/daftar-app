@@ -1,7 +1,10 @@
 // التخزين الدائم على الجوال (IndexedDB): سجل العمليات + الإعدادات المحلية للجهاز.
 // الإعدادات المحلية (القفل، رمز صاحب البقالة، المظهر) لا تُزامَن مع أجهزة أخرى.
 
-const NAME = 'daftar';
+// وضع التدريب: دفتر منفصل تماماً باسم قاعدة مختلف (لا يلمس الدفتر الحقيقي).
+export function isTraining() { try { return localStorage.getItem('daftar.train') === '1'; } catch { return false; } }
+export function setTraining(on) { try { if (on) localStorage.setItem('daftar.train', '1'); else localStorage.removeItem('daftar.train'); } catch { /* ignore */ } }
+const NAME = isTraining() ? 'daftar-train' : 'daftar';
 let dbp = null;
 
 function open() {
@@ -66,4 +69,12 @@ export async function persistenceStatus() {
     if (!navigator.storage || !navigator.storage.persisted) return 'unsupported';
     return (await navigator.storage.persisted()) ? 'granted' : 'denied';
   } catch { return 'unsupported'; }
+}
+
+/** مسح دفتر التدريب كاملاً (عند إنهاء التدريب). */
+export function wipeTraining() {
+  return new Promise((resolve) => {
+    const go = () => { const r = indexedDB.deleteDatabase('daftar-train'); r.onsuccess = r.onerror = r.onblocked = () => resolve(undefined); };
+    if (dbp) dbp.then((d) => { d.close(); go(); }, go); else go();
+  });
 }
